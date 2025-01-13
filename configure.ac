@@ -736,8 +736,8 @@ if test "x$have_timespec" = "xyes"; then
 fi
 
 # Checks for library functions.
+AM_GNU_GETTEXT_REQUIRE_VERSION([0.21])
 AM_GNU_GETTEXT([external])
-AM_GNU_GETTEXT_VERSION([0.18])
 AC_FUNC_ERROR_AT_LINE
 AC_PROG_GCC_TRADITIONAL
 
