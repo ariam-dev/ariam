@@ -12,10 +12,12 @@ class BufferedFileTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(BufferedFileTest);
   CPPUNIT_TEST(testOpen);
+  CPPUNIT_TEST(testGetLine_leadingNul);
   CPPUNIT_TEST_SUITE_END();
 
 public:
   void testOpen();
+  void testGetLine_leadingNul();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(BufferedFileTest);
@@ -52,6 +54,24 @@ void BufferedFileTest::testOpen()
   CPPUNIT_ASSERT(rd.getsn(buf, sizeof(buf)));
   CPPUNIT_ASSERT_EQUAL(std::string("charlie"), std::string(buf));
 
+  CPPUNIT_ASSERT(rd.eof());
+}
+
+void BufferedFileTest::testGetLine_leadingNul()
+{
+  File f(A2_TEST_OUT_DIR "/aria2_BufferedFileTest_testGetLine_leadingNul");
+  f.remove();
+  BufferedFile wr(f.getPath().c_str(), IOFile::WRITE);
+  CPPUNIT_ASSERT(wr);
+  std::string msg(1, '\0');
+  msg += "abc\nsecond\n";
+  wr.write(msg.data(), msg.size());
+  wr.close();
+
+  BufferedFile rd(f.getPath().c_str(), IOFile::READ);
+  // The NUL-led first line has strlen 0, so getLine drops it.
+  CPPUNIT_ASSERT_EQUAL(std::string("second"), rd.getLine());
+  CPPUNIT_ASSERT_EQUAL(std::string(), rd.getLine());
   CPPUNIT_ASSERT(rd.eof());
 }
 
