@@ -63,6 +63,7 @@
 #include "array_fun.h"
 #include "help_tags.h"
 #include "MessageDigest.h"
+#include "SiteConcurrency.h"
 
 namespace aria2 {
 
@@ -658,6 +659,28 @@ std::string
 OptimizeConcurrentDownloadsOptionHandler::createPossibleValuesString() const
 {
   return "true, false, A:B";
+}
+
+SiteConcurrentOptionHandler::SiteConcurrentOptionHandler(
+    PrefPtr pref, const char* description, const std::string& defaultValue,
+    char shortName)
+    : AbstractOptionHandler(pref, description, defaultValue,
+                            OptionHandler::REQ_ARG, shortName)
+{
+}
+
+SiteConcurrentOptionHandler::~SiteConcurrentOptionHandler() = default;
+
+void SiteConcurrentOptionHandler::parseArg(Option& option,
+                                           const std::string& optarg) const
+{
+  option.put(pref_, SiteConcurrency::formatSites(
+                        SiteConcurrency::parseSites(optarg)));
+}
+
+std::string SiteConcurrentOptionHandler::createPossibleValuesString() const
+{
+  return "HOST:N[,HOST:N...]";
 }
 
 DeprecatedOptionHandler::DeprecatedOptionHandler(

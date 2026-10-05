@@ -226,6 +226,12 @@ PrefPtr PREF_OPTIMIZE_CONCURRENT_DOWNLOADS_COEFFA =
 // values: 1*digit ['.' [ 1*digit ] ]
 PrefPtr PREF_OPTIMIZE_CONCURRENT_DOWNLOADS_COEFFB =
     makePref("optimize-concurrent-downloads-coeffB");
+// value: HOST:N[,HOST:N...]
+PrefPtr PREF_SITE_CONCURRENT = makePref("site-concurrent");
+// value: 1*digit
+PrefPtr PREF_SITE_CONCURRENT_DEFAULT = makePref("site-concurrent-default");
+// value: string that your file system recognizes as a file name.
+PrefPtr PREF_SITE_CONCURRENT_FILE = makePref("site-concurrent-file");
 // value: true | false
 PrefPtr PREF_FORCE_SEQUENTIAL = makePref("force-sequential");
 // value: true | false

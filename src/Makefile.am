@@ -228,6 +228,8 @@ SRCS =  \
 	SingleFileAllocationIterator.cc SingleFileAllocationIterator.h\
 	SingletonHolder.h\
 	SinkStreamFilter.cc SinkStreamFilter.h\
+	SiteConcurrency.cc SiteConcurrency.h\
+	SiteConcurrencyFile.cc SiteConcurrencyFile.h\
 	SocketBuffer.cc SocketBuffer.h\
 	SocketCore.cc SocketCore.h\
 	SocketRecvBuffer.cc SocketRecvBuffer.h\
@@ -713,6 +715,7 @@ AM_CPPFLAGS = \
 	@LIBGCRYPT_CFLAGS@ \
 	@LIBSSH2_CFLAGS@ \
 	@LIBCARES_CFLAGS@ \
+	@LIBPSL_CFLAGS@ \
 	@WSLAY_CFLAGS@ \
 	@TCMALLOC_CFLAGS@ \
 	@JEMALLOC_CFLAGS@
@@ -736,6 +739,7 @@ EXTLDADD = @ALLOCA@ \
 	@LIBGCRYPT_LIBS@ \
 	@LIBSSH2_LIBS@ \
 	@LIBCARES_LIBS@ \
+	@LIBPSL_LIBS@ \
 	@WSLAY_LIBS@ \
 	@TCMALLOC_LIBS@ \
 	@JEMALLOC_LIBS@ \

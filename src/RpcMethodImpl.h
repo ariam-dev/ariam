@@ -49,6 +49,7 @@
 #include "IndexedList.h"
 #include "GroupId.h"
 #include "RequestGroupMan.h"
+#include "SiteConcurrency.h"
 
 namespace aria2 {
 
@@ -304,6 +305,12 @@ public:
   static const char* getMethodName() { return "aria2.tellActive"; }
 };
 
+// Site limits for the site key of one response: those of e if keys
+// requests the site key, none otherwise. Build once per call, not per
+// entry.
+SiteConcurrency createSiteConcurrency(DownloadEngine* e,
+                                      const std::vector<std::string>& keys);
+
 template <typename T> class AbstractPaginationRpcMethod : public RpcMethod {
 private:
   template <typename InputIterator>
@@ -360,10 +367,11 @@ protected:
     const ItemListType& items = getItems(e);
     auto range =
         getPaginationRange(offset, num, std::begin(items), std::end(items));
+    auto sites = createSiteConcurrency(e, keys);
     auto list = List::g();
     for (; range.first != range.second; ++range.first) {
       auto entryDict = Dict::g();
-      createEntry(entryDict.get(), *range.first, e, keys);
+      createEntry(entryDict.get(), *range.first, e, sites, keys);
       list->append(std::move(entryDict));
     }
     if (offset < 0) {
@@ -375,7 +383,7 @@ protected:
   virtual const ItemListType& getItems(DownloadEngine* e) const = 0;
 
   virtual void createEntry(Dict* entryDict, const std::shared_ptr<T>& item,
-                           DownloadEngine* e,
+                           DownloadEngine* e, const SiteConcurrency& sites,
                            const std::vector<std::string>& keys) const = 0;
 };
 
@@ -386,7 +394,7 @@ protected:
 
   virtual void
   createEntry(Dict* entryDict, const std::shared_ptr<RequestGroup>& item,
-              DownloadEngine* e,
+              DownloadEngine* e, const SiteConcurrency& sites,
               const std::vector<std::string>& keys) const CXX11_OVERRIDE;
 
 public:
@@ -401,7 +409,7 @@ protected:
 
   virtual void
   createEntry(Dict* entryDict, const std::shared_ptr<DownloadResult>& item,
-              DownloadEngine* e,
+              DownloadEngine* e, const SiteConcurrency& sites,
               const std::vector<std::string>& keys) const CXX11_OVERRIDE;
 
 public:
@@ -516,6 +524,15 @@ public:
   static const char* getMethodName() { return "aria2.saveSession"; }
 };
 
+class GetSiteSummaryRpcMethod : public RpcMethod {
+protected:
+  virtual std::unique_ptr<ValueBase> process(const RpcRequest& req,
+                                             DownloadEngine* e) CXX11_OVERRIDE;
+
+public:
+  static const char* getMethodName() { return "ariam.getSiteSummary"; }
+};
+
 class SystemMulticallRpcMethod : public RpcMethod {
 protected:
   virtual std::unique_ptr<ValueBase> process(const RpcRequest& req,
@@ -559,12 +576,14 @@ protected:
 // is used by tellStatus method.
 void gatherStoppedDownload(Dict* entryDict,
                            const std::shared_ptr<DownloadResult>& ds,
+                           const SiteConcurrency& sites,
                            const std::vector<std::string>& keys);
 
 // Helper function to store data to entryDict from group. This
 // function is used by tellStatus/tellActive/tellWaiting method
 void gatherProgressCommon(Dict* entryDict,
                           const std::shared_ptr<RequestGroup>& group,
+                          const SiteConcurrency& sites,
                           const std::vector<std::string>& keys);
 
 #ifdef ENABLE_BITTORRENT
@@ -580,6 +599,9 @@ bool pauseRequestGroup(const std::shared_ptr<RequestGroup>& group,
 void changeOption(const std::shared_ptr<RequestGroup>& group,
                   const Option& option, DownloadEngine* e);
 
+// If option sets a site limit and PREF_SITE_CONCURRENT_FILE is set,
+// saves the resulting limits to that file first; if saving fails,
+// throws DlAbortEx and changes no value.
 void changeGlobalOption(const Option& option, DownloadEngine* e);
 
 } // namespace aria2

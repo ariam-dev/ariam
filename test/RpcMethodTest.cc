@@ -1,5 +1,7 @@
 #include "RpcMethod.h"
 
+#include <map>
+
 #include <cppunit/extensions/HelperMacros.h>
 
 #include "DownloadEngine.h"
@@ -21,6 +23,8 @@
 #include "download_helper.h"
 #include "FileEntry.h"
 #include "RpcMethodFactory.h"
+#include "FillRequestGroupCommand.h"
+#include "SiteConcurrency.h"
 #ifdef ENABLE_BITTORRENT
 #  include "BtRegistry.h"
 #  include "BtRuntime.h"
@@ -58,7 +62,9 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testChangeOption_withBadOption);
   CPPUNIT_TEST(testChangeOption_withNotAllowedOption);
   CPPUNIT_TEST(testChangeOption_withoutGid);
+  CPPUNIT_TEST(testChangeOption_siteOfWaiting);
   CPPUNIT_TEST(testChangeGlobalOption);
+  CPPUNIT_TEST(testChangeGlobalOption_raiseSiteLimit);
   CPPUNIT_TEST(testChangeGlobalOption_withBadOption);
   CPPUNIT_TEST(testChangeGlobalOption_withNotAllowedOption);
   CPPUNIT_TEST(testTellStatus_withoutGid);
@@ -71,6 +77,12 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testGatherStoppedDownload_bt);
 #endif // ENABLE_BITTORRENT
   CPPUNIT_TEST(testGatherProgressCommon);
+  CPPUNIT_TEST(testGatherProgressCommon_siteAndName);
+  CPPUNIT_TEST(testGatherStoppedDownload_siteAndName);
+  CPPUNIT_TEST(testTellStatus_siteAndName);
+  CPPUNIT_TEST(testGetSiteSummary);
+  CPPUNIT_TEST(testGetSiteSummary_unset);
+  CPPUNIT_TEST(testGetSiteSummary_authorize);
 #ifdef ENABLE_BITTORRENT
   CPPUNIT_TEST(testGatherBitTorrentMetadata);
 #endif // ENABLE_BITTORRENT
@@ -128,7 +140,9 @@ public:
   void testChangeOption_withBadOption();
   void testChangeOption_withNotAllowedOption();
   void testChangeOption_withoutGid();
+  void testChangeOption_siteOfWaiting();
   void testChangeGlobalOption();
+  void testChangeGlobalOption_raiseSiteLimit();
   void testChangeGlobalOption_withBadOption();
   void testChangeGlobalOption_withNotAllowedOption();
   void testTellStatus_withoutGid();
@@ -141,6 +155,12 @@ public:
   void testGatherStoppedDownload_bt();
 #endif // ENABLE_BITTORRENT
   void testGatherProgressCommon();
+  void testGatherProgressCommon_siteAndName();
+  void testGatherStoppedDownload_siteAndName();
+  void testTellStatus_siteAndName();
+  void testGetSiteSummary();
+  void testGetSiteSummary_unset();
+  void testGetSiteSummary_authorize();
 #ifdef ENABLE_BITTORRENT
   void testGatherBitTorrentMetadata();
 #endif // ENABLE_BITTORRENT
@@ -688,6 +708,95 @@ void RpcMethodTest::testChangeOption_withoutGid()
   CPPUNIT_ASSERT_EQUAL(1, res.code);
 }
 
+namespace {
+std::vector<std::shared_ptr<RequestGroup>>
+startSaturatedSite(const std::shared_ptr<DownloadEngine>& e,
+                   const std::shared_ptr<Option>& option)
+{
+  auto& rgman = e->getRequestGroupMan();
+  rgman->setMaxConcurrentDownloads(3);
+  OptionParser::getInstance()->find(PREF_SITE_CONCURRENT)->parse(*option,
+                                                                 "a.test:1");
+  std::vector<std::shared_ptr<RequestGroup>> groups;
+  for (int i = 0; i < 2; ++i) {
+    auto opt = util::copy(option);
+    opt->put(PREF_REFERER, "https://a.test/");
+    auto name = "site" + util::itos(i);
+    groups.push_back(createRequestGroup(0, 0, name, "http://host/" + name, opt));
+  }
+  rgman->addReservedGroup(groups);
+  rgman->fillRequestGroupFromReserver(e.get());
+  CPPUNIT_ASSERT_EQUAL((size_t)1, rgman->getRequestGroups().size());
+  CPPUNIT_ASSERT_EQUAL((size_t)1, rgman->getReservedGroups().size());
+  CPPUNIT_ASSERT_EQUAL(groups[1]->getGID(),
+                       (*rgman->getReservedGroups().begin())->getGID());
+  rgman->clearQueueCheck();
+  return groups;
+}
+
+void runFillRequestGroupCommand(const std::shared_ptr<DownloadEngine>& e)
+{
+  // Unless execute() returns true, it hands the command over to e.
+  auto command = new FillRequestGroupCommand(e->newCUID(), e.get());
+  if (command->execute()) {
+    delete command;
+  }
+}
+} // namespace
+
+void RpcMethodTest::testChangeOption_siteOfWaiting()
+{
+  auto groups = startSaturatedSite(e_, option_);
+  auto& rgman = e_->getRequestGroupMan();
+
+  ChangeOptionRpcMethod m;
+  auto req = createReq(ChangeOptionRpcMethod::getMethodName());
+  req.params->append(GroupId::toHex(groups[1]->getGID()));
+  auto opt = Dict::g();
+  opt->put(PREF_REFERER->k, "https://c.test/");
+  req.params->append(std::move(opt));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT(rgman->queueCheckRequested());
+  CPPUNIT_ASSERT_EQUAL(
+      std::string("c.test"),
+      SiteConcurrency(*e_).classify(*groups[1]->getOption()).site);
+
+  runFillRequestGroupCommand(e_);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, rgman->getRequestGroups().size());
+  CPPUNIT_ASSERT(rgman->getReservedGroups().empty());
+}
+
+void RpcMethodTest::testChangeGlobalOption_raiseSiteLimit()
+{
+  auto groups = startSaturatedSite(e_, option_);
+  auto& rgman = e_->getRequestGroupMan();
+
+  ChangeGlobalOptionRpcMethod m;
+  auto req = createReq(ChangeGlobalOptionRpcMethod::getMethodName());
+  auto opt = Dict::g();
+  opt->put(PREF_SITE_CONCURRENT->k, "a.test:2");
+  req.params->append(std::move(opt));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT(rgman->queueCheckRequested());
+
+  // The waiting download starts; the running one is not completed,
+  // cancelled, or restarted.
+  runFillRequestGroupCommand(e_);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, rgman->getRequestGroups().size());
+  CPPUNIT_ASSERT(rgman->getReservedGroups().empty());
+  for (const auto& g : groups) {
+    CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_ACTIVE, g->getState());
+    CPPUNIT_ASSERT(!g->isHaltRequested());
+    CPPUNIT_ASSERT(!g->isPauseRequested());
+    CPPUNIT_ASSERT(!g->isRestartRequested());
+  }
+  CPPUNIT_ASSERT_EQUAL(groups[0]->getGID(),
+                       (*rgman->getRequestGroups().begin())->getGID());
+  CPPUNIT_ASSERT(rgman->getDownloadResults().empty());
+}
+
 void RpcMethodTest::testChangeGlobalOption()
 {
   ChangeGlobalOptionRpcMethod m;
@@ -938,7 +1047,7 @@ void RpcMethodTest::testGatherStoppedDownload()
   d->belongsTo = 2;
   auto entry = Dict::g();
   std::vector<std::string> keys;
-  gatherStoppedDownload(entry.get(), d, keys);
+  gatherStoppedDownload(entry.get(), d, SiteConcurrency(*e_), keys);
 
   const List* followedByRes = downcast<List>(entry->get("followedBy"));
   CPPUNIT_ASSERT_EQUAL(GroupId::toHex(3),
@@ -953,7 +1062,7 @@ void RpcMethodTest::testGatherStoppedDownload()
   keys.push_back("gid");
 
   entry = Dict::g();
-  gatherStoppedDownload(entry.get(), d, keys);
+  gatherStoppedDownload(entry.get(), d, SiteConcurrency(*e_), keys);
   CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
   CPPUNIT_ASSERT(entry->containsKey("gid"));
 }
@@ -971,7 +1080,7 @@ void RpcMethodTest::testGatherStoppedDownload_bt()
   d->attrs[CTX_ATTR_BT] = torrentAttr;
 
   auto entry = Dict::g();
-  gatherStoppedDownload(entry.get(), d, {});
+  gatherStoppedDownload(entry.get(), d, SiteConcurrency(*e_), {});
 
   auto btDict = downcast<Dict>(entry->get("bittorrent"));
   CPPUNIT_ASSERT(btDict);
@@ -1003,7 +1112,7 @@ void RpcMethodTest::testGatherProgressCommon()
 
   auto entry = Dict::g();
   std::vector<std::string> keys;
-  gatherProgressCommon(entry.get(), group, keys);
+  gatherProgressCommon(entry.get(), group, SiteConcurrency(*e_), keys);
 
   const List* followedByRes = downcast<List>(entry->get("followedBy"));
   CPPUNIT_ASSERT_EQUAL(GroupId::toHex(followedBy[0]->getGID()),
@@ -1029,10 +1138,432 @@ void RpcMethodTest::testGatherProgressCommon()
 
   keys.push_back("gid");
   entry = Dict::g();
-  gatherProgressCommon(entry.get(), group, keys);
+  gatherProgressCommon(entry.get(), group, SiteConcurrency(*e_), keys);
 
   CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
   CPPUNIT_ASSERT(entry->containsKey("gid"));
+}
+
+namespace {
+void setSiteLimits(Option& option, const std::string& sites,
+                   const std::string& defaultLimit)
+{
+  const auto& parser = OptionParser::getInstance();
+  parser->find(PREF_SITE_CONCURRENT)->parse(option, sites);
+  parser->find(PREF_SITE_CONCURRENT_DEFAULT)->parse(option, defaultLimit);
+}
+
+std::string getStringValue(const Dict* dict, const std::string& key)
+{
+  auto s = downcast<String>(dict->get(key));
+  CPPUNIT_ASSERT_MESSAGE(key, s);
+  return s->s();
+}
+} // namespace
+
+void RpcMethodTest::testGatherProgressCommon_siteAndName()
+{
+  setSiteLimits(*option_, "a.test:1", "0");
+  // Started: its path is known. The Referer header line beats the
+  // referer option.
+  auto opt = util::copy(option_);
+  opt->put(PREF_HEADER, "Referer: https://www.a.test/page");
+  opt->put(PREF_REFERER, "https://b.test/");
+  auto started = createRequestGroup(0, 0, "/dl/sub/aria2.tar.bz2",
+                                    "http://host/other.bin", opt);
+  // Never started and no out: its path is empty.
+  auto queued = createRequestGroup(
+      0, 0, "", "http://host/dir/my%20file.iso?token=x#frag",
+      util::copy(option_));
+  auto queuedDir =
+      createRequestGroup(0, 0, "", "http://host/dir/", util::copy(option_));
+
+  auto entry = Dict::g();
+  gatherProgressCommon(entry.get(), started, SiteConcurrency(*e_), {});
+  CPPUNIT_ASSERT_EQUAL(std::string("aria2.tar.bz2"),
+                       getStringValue(entry.get(), "name"));
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test"),
+                       getStringValue(entry.get(), "site"));
+  CPPUNIT_ASSERT_EQUAL(SiteConcurrency(*e_).classify(*opt).site,
+                       getStringValue(entry.get(), "site"));
+
+  entry = Dict::g();
+  gatherProgressCommon(entry.get(), queued, SiteConcurrency(*e_), {});
+  CPPUNIT_ASSERT_EQUAL(std::string("my file.iso"),
+                       getStringValue(entry.get(), "name"));
+  CPPUNIT_ASSERT_EQUAL(std::string("(none)"),
+                       getStringValue(entry.get(), "site"));
+
+  // An empty last segment is named as aria2 names the file.
+  entry = Dict::g();
+  gatherProgressCommon(entry.get(), queuedDir, SiteConcurrency(*e_), {"name"});
+  CPPUNIT_ASSERT_EQUAL(std::string("index.html"),
+                       getStringValue(entry.get(), "name"));
+
+  // The engine's site list is used, not the download's copy of it.
+  setSiteLimits(*option_, "www.a.test:2", "0");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:1"),
+                       opt->get(PREF_SITE_CONCURRENT));
+  entry = Dict::g();
+  gatherProgressCommon(entry.get(), started, SiteConcurrency(*e_), {"site"});
+  CPPUNIT_ASSERT_EQUAL(std::string("www.a.test"),
+                       getStringValue(entry.get(), "site"));
+
+  // The keys filter.
+  for (const auto& key : {"site", "name"}) {
+    entry = Dict::g();
+    gatherProgressCommon(entry.get(), queued, SiteConcurrency(*e_), {key});
+    CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
+    CPPUNIT_ASSERT(entry->containsKey(key));
+  }
+  entry = Dict::g();
+  gatherProgressCommon(entry.get(), queued, SiteConcurrency(*e_),
+                       {"gid", "dir"});
+  CPPUNIT_ASSERT_EQUAL((size_t)2, entry->size());
+  CPPUNIT_ASSERT(!entry->containsKey("site"));
+  CPPUNIT_ASSERT(!entry->containsKey("name"));
+}
+
+void RpcMethodTest::testGatherStoppedDownload_siteAndName()
+{
+  // Path /tmp/path is known.
+  auto dr = createDownloadResult(error_code::FINISHED, "http://host/fin");
+  dr->option->put(PREF_REFERER, "https://dl.a.test/");
+  // A stale site list in the download's own option is not used.
+  dr->option->put(PREF_SITE_CONCURRENT, "dl.a.test:1");
+  // Stopped before its path was determined.
+  auto never = createDownloadResult(error_code::REMOVED,
+                                    "http://host/get/report.pdf?id=7#p2");
+  never->fileEntries[0]->setPath("");
+
+  auto entry = Dict::g();
+  gatherStoppedDownload(entry.get(), dr, SiteConcurrency(*e_), {});
+  CPPUNIT_ASSERT_EQUAL(std::string("path"),
+                       getStringValue(entry.get(), "name"));
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test"),
+                       getStringValue(entry.get(), "site"));
+
+  setSiteLimits(*option_, "a.test:2", "1");
+  entry = Dict::g();
+  gatherStoppedDownload(entry.get(), dr, SiteConcurrency(*e_), {"site"});
+  CPPUNIT_ASSERT_EQUAL(SiteConcurrency(*e_).classify(*dr->option).site,
+                       getStringValue(entry.get(), "site"));
+
+  entry = Dict::g();
+  gatherStoppedDownload(entry.get(), never, SiteConcurrency(*e_), {});
+  CPPUNIT_ASSERT_EQUAL(std::string("report.pdf"),
+                       getStringValue(entry.get(), "name"));
+  CPPUNIT_ASSERT_EQUAL(std::string("(none)"),
+                       getStringValue(entry.get(), "site"));
+
+  // The keys filter.
+  for (const auto& key : {"site", "name"}) {
+    entry = Dict::g();
+    gatherStoppedDownload(entry.get(), dr, SiteConcurrency(*e_), {key});
+    CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
+    CPPUNIT_ASSERT(entry->containsKey(key));
+  }
+  entry = Dict::g();
+  gatherStoppedDownload(entry.get(), dr, SiteConcurrency(*e_),
+                        {"gid", "status"});
+  CPPUNIT_ASSERT_EQUAL((size_t)2, entry->size());
+  CPPUNIT_ASSERT(!entry->containsKey("site"));
+  CPPUNIT_ASSERT(!entry->containsKey("name"));
+}
+
+namespace {
+std::unique_ptr<List> createKeys(const std::vector<std::string>& keys)
+{
+  auto list = List::g();
+  for (const auto& k : keys) {
+    list->append(k);
+  }
+  return list;
+}
+} // namespace
+
+void RpcMethodTest::testTellStatus_siteAndName()
+{
+  setSiteLimits(*option_, "b.test:1", "0");
+  AddUriRpcMethod addUriMethod;
+  auto addReq = createReq(AddUriRpcMethod::getMethodName());
+  auto urisParam = List::g();
+  urisParam->append("http://host/files/big.iso?sig=1");
+  addReq.params->append(std::move(urisParam));
+  auto opt = Dict::g();
+  opt->put(PREF_REFERER->k, "https://x.b.test/");
+  addReq.params->append(std::move(opt));
+  auto addRes = addUriMethod.execute(std::move(addReq), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, addRes.code);
+  auto gid = downcast<String>(addRes.param)->s();
+
+  TellStatusRpcMethod m;
+  auto req = createReq(TellStatusRpcMethod::getMethodName());
+  req.params->append(gid);
+  req.params->append(createKeys({"site", "name"}));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  auto entry = downcast<Dict>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, entry->size());
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"), getStringValue(entry, "site"));
+  CPPUNIT_ASSERT_EQUAL(std::string("big.iso"), getStringValue(entry, "name"));
+
+  auto dr = createDownloadResult(error_code::FINISHED, "http://host/fin");
+  dr->option->put(PREF_REFERER, "https://b.test/");
+  e_->getRequestGroupMan()->addDownloadResult(dr);
+  req = createReq(TellStatusRpcMethod::getMethodName());
+  req.params->append(dr->gid->toHex());
+  req.params->append(createKeys({"site"}));
+  res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  entry = downcast<Dict>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"), getStringValue(entry, "site"));
+
+  TellStoppedRpcMethod stoppedMethod;
+  req = createReq(TellStoppedRpcMethod::getMethodName());
+  req.params->append(Integer::g(0));
+  req.params->append(Integer::g(10));
+  req.params->append(createKeys({"name"}));
+  res = stoppedMethod.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  auto list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)1, list->size());
+  entry = downcast<Dict>(list->get(0));
+  CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
+  CPPUNIT_ASSERT_EQUAL(std::string("path"), getStringValue(entry, "name"));
+}
+
+namespace {
+// Formats the ariam.getSiteSummary result as
+// "DEFAULT CEILING | SITE LISTED LIMIT A/W/P; ...". Every value must be
+// a string.
+std::string getSiteSummary(const std::shared_ptr<DownloadEngine>& e)
+{
+  auto res = getMethod(GetSiteSummaryRpcMethod::getMethodName())
+                 ->execute(createReq(GetSiteSummaryRpcMethod::getMethodName()),
+                           e.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  auto summary = downcast<Dict>(res.param);
+  CPPUNIT_ASSERT(summary);
+  CPPUNIT_ASSERT_EQUAL((size_t)3, summary->size());
+  auto out = getStringValue(summary, "default") + " " +
+             getStringValue(summary, "ceiling") + " |";
+  auto sites = downcast<List>(summary->get("sites"));
+  CPPUNIT_ASSERT(sites);
+  bool first = true;
+  for (auto& v : *sites) {
+    auto s = downcast<Dict>(v);
+    CPPUNIT_ASSERT(s);
+    CPPUNIT_ASSERT_EQUAL((size_t)6, s->size());
+    out += first ? " " : "; ";
+    first = false;
+    out += getStringValue(s, "site") + " " + getStringValue(s, "listed") +
+           " " + getStringValue(s, "limit") + " " +
+           getStringValue(s, "active") + "/" + getStringValue(s, "waiting") +
+           "/" + getStringValue(s, "paused");
+  }
+  return out;
+}
+
+// Formats per-site "A/W/P" counts as "SITE A/W/P; ..." in site order.
+std::string formatTally(const std::map<std::string, std::string>& tally)
+{
+  std::string out;
+  for (const auto& t : tally) {
+    if (!out.empty()) {
+      out += "; ";
+    }
+    out += t.first + " " + t.second;
+  }
+  return out;
+}
+
+// Per-site counts of the summary's sites that have downloads.
+std::string getSummaryTally(const std::shared_ptr<DownloadEngine>& e)
+{
+  auto res = getMethod(GetSiteSummaryRpcMethod::getMethodName())
+                 ->execute(createReq(GetSiteSummaryRpcMethod::getMethodName()),
+                           e.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  std::map<std::string, std::string> tally;
+  for (auto& v : *downcast<List>(downcast<Dict>(res.param)->get("sites"))) {
+    auto s = downcast<Dict>(v);
+    auto counts = getStringValue(s, "active") + "/" +
+                  getStringValue(s, "waiting") + "/" +
+                  getStringValue(s, "paused");
+    if (counts != "0/0/0") {
+      tally[getStringValue(s, "site")] = counts;
+    }
+  }
+  return formatTally(tally);
+}
+
+struct SiteTally {
+  int active = 0;
+  int waiting = 0;
+  int paused = 0;
+};
+
+// Per-site counts from the site and status keys of tellActive and
+// tellWaiting.
+std::string getTellTally(const std::shared_ptr<DownloadEngine>& e)
+{
+  std::map<std::string, SiteTally> tally;
+  {
+    TellActiveRpcMethod m;
+    auto req = createReq(TellActiveRpcMethod::getMethodName());
+    req.params->append(createKeys({"site"}));
+    auto res = m.execute(std::move(req), e.get());
+    CPPUNIT_ASSERT_EQUAL(0, res.code);
+    for (auto& v : *downcast<List>(res.param)) {
+      ++tally[getStringValue(downcast<Dict>(v), "site")].active;
+    }
+  }
+  {
+    TellWaitingRpcMethod m;
+    auto req = createReq(TellWaitingRpcMethod::getMethodName());
+    req.params->append(Integer::g(0));
+    req.params->append(Integer::g(1000));
+    req.params->append(createKeys({"site", "status"}));
+    auto res = m.execute(std::move(req), e.get());
+    CPPUNIT_ASSERT_EQUAL(0, res.code);
+    for (auto& v : *downcast<List>(res.param)) {
+      auto d = downcast<Dict>(v);
+      auto& t = tally[getStringValue(d, "site")];
+      if (getStringValue(d, "status") == "paused") {
+        ++t.paused;
+      }
+      else {
+        ++t.waiting;
+      }
+    }
+  }
+  std::map<std::string, std::string> res;
+  for (const auto& t : tally) {
+    res[t.first] = util::itos(t.second.active) + "/" +
+                   util::itos(t.second.waiting) + "/" +
+                   util::itos(t.second.paused);
+  }
+  return formatTally(res);
+}
+} // namespace
+
+void RpcMethodTest::testGetSiteSummary()
+{
+  // Listed sites are not in byte order, and idle.test has no download.
+  setSiteLimits(*option_, "b.test:3,a.test:1,idle.test:4", "2");
+  auto& rgman = e_->getRequestGroupMan();
+  rgman->setMaxConcurrentDownloads(6);
+  std::map<std::string, std::shared_ptr<RequestGroup>> groups;
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a1", "a.test"},
+           {"a2", "members.a.test"},
+           {"a3", "a.test"},
+           {"b1", "b.test"},
+           {"b2", "cdn.b.test"},
+           {"b3", "b.test"},
+           {"b4", "b.test"},
+           {"c1", "dl.c.test"},
+           {"c2", "www.c.test"},
+           {"c3", "dl.c.test"},
+           {"n1", ""}}) {
+    auto opt = util::copy(option_);
+    if (!p.second.empty()) {
+      opt->put(PREF_REFERER, "https://" + p.second + "/page");
+    }
+    auto g = createRequestGroup(0, 0, "sum_" + p.first,
+                                "http://host/" + p.first, opt);
+    groups[p.first] = g;
+    rgman->addReservedGroup(g);
+  }
+  rgman->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL((size_t)6, rgman->getRequestGroups().size());
+  for (const auto& name : {"a1", "b1", "b2", "b3", "c1", "c2"}) {
+    CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_ACTIVE,
+                         groups[name]->getState());
+  }
+  groups["a3"]->setPauseRequested(true);
+
+  CPPUNIT_ASSERT_EQUAL(std::string("2 6 | b.test true 3 3/1/0; "
+                                   "a.test true 1 1/1/1; "
+                                   "idle.test true 4 0/0/0; "
+                                   "(none) false 2 0/1/0; "
+                                   "c.test false 2 2/1/0"),
+                       getSiteSummary(e_));
+  CPPUNIT_ASSERT_EQUAL(getTellTally(e_), getSummaryTally(e_));
+
+  // Listing dl.c.test reclassifies both its active and its queued
+  // download; the new default and ceiling are reported.
+  ChangeGlobalOptionRpcMethod m;
+  auto req = createReq(ChangeGlobalOptionRpcMethod::getMethodName());
+  auto opt = Dict::g();
+  opt->put(PREF_SITE_CONCURRENT->k,
+           "b.test:3,a.test:1,idle.test:4,dl.c.test:1");
+  opt->put(PREF_SITE_CONCURRENT_DEFAULT->k, "0");
+  opt->put(PREF_MAX_CONCURRENT_DOWNLOADS->k, "8");
+  req.params->append(std::move(opt));
+  CPPUNIT_ASSERT_EQUAL(0, m.execute(std::move(req), e_.get()).code);
+
+  CPPUNIT_ASSERT_EQUAL(std::string("0 8 | b.test true 3 3/1/0; "
+                                   "a.test true 1 1/1/1; "
+                                   "idle.test true 4 0/0/0; "
+                                   "dl.c.test true 1 1/1/0; "
+                                   "(none) false 0 0/1/0; "
+                                   "c.test false 0 1/0/0"),
+                       getSiteSummary(e_));
+  CPPUNIT_ASSERT_EQUAL(getTellTally(e_), getSummaryTally(e_));
+
+  TellStatusRpcMethod tellStatus;
+  auto statusReq = createReq(TellStatusRpcMethod::getMethodName());
+  statusReq.params->append(GroupId::toHex(groups["c3"]->getGID()));
+  statusReq.params->append(createKeys({"site"}));
+  auto statusRes = tellStatus.execute(std::move(statusReq), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, statusRes.code);
+  CPPUNIT_ASSERT_EQUAL(std::string("dl.c.test"),
+                       getStringValue(downcast<Dict>(statusRes.param), "site"));
+}
+
+void RpcMethodTest::testGetSiteSummary_unset()
+{
+  // Site options unset: no listed site and no per-site limit.
+  CPPUNIT_ASSERT_EQUAL(std::string("0 1 |"), getSiteSummary(e_));
+  addUri("http://host/x", e_);
+  CPPUNIT_ASSERT_EQUAL(std::string("0 1 | (none) false 0 0/1/0"),
+                       getSiteSummary(e_));
+  // A listed site is reported without downloads.
+  setSiteLimits(*option_, "idle.test:4", "0");
+  CPPUNIT_ASSERT_EQUAL(
+      std::string("0 1 | idle.test true 4 0/0/0; (none) false 0 0/1/0"),
+      getSiteSummary(e_));
+}
+
+void RpcMethodTest::testGetSiteSummary_authorize()
+{
+  auto m = getMethod(GetSiteSummaryRpcMethod::getMethodName());
+  CPPUNIT_ASSERT(dynamic_cast<GetSiteSummaryRpcMethod*>(m));
+  e_->getOption()->put(PREF_RPC_SECRET, "foo");
+  {
+    auto req = createReq(GetSiteSummaryRpcMethod::getMethodName());
+    auto res = m->execute(std::move(req), e_.get());
+    CPPUNIT_ASSERT_EQUAL(1, res.code);
+    CPPUNIT_ASSERT(not_authorized(res));
+  }
+  {
+    auto req = createReq(GetSiteSummaryRpcMethod::getMethodName());
+    req.params->append("token:foo2");
+    auto res = m->execute(std::move(req), e_.get());
+    CPPUNIT_ASSERT_EQUAL(1, res.code);
+    CPPUNIT_ASSERT(not_authorized(res));
+  }
+  {
+    auto req = createReq(GetSiteSummaryRpcMethod::getMethodName());
+    req.params->append("token:foo");
+    auto res = m->execute(std::move(req), e_.get());
+    CPPUNIT_ASSERT_EQUAL(0, res.code);
+    CPPUNIT_ASSERT(!not_authorized(res));
+    CPPUNIT_ASSERT(downcast<Dict>(res.param));
+  }
 }
 
 #ifdef ENABLE_BITTORRENT
@@ -1429,11 +1960,16 @@ void RpcMethodTest::testSystemListMethods()
 
   CPPUNIT_ASSERT_EQUAL(allNames.size(), resParams->size());
 
+  bool siteSummaryListed = false;
   for (size_t i = 0; i < allNames.size(); ++i) {
     const auto s = downcast<String>(resParams->get(i));
     CPPUNIT_ASSERT(s);
     CPPUNIT_ASSERT_EQUAL(allNames[i], s->s());
+    if (s->s() == GetSiteSummaryRpcMethod::getMethodName()) {
+      siteSummaryListed = true;
+    }
   }
+  CPPUNIT_ASSERT(siteSummaryListed);
 }
 
 void RpcMethodTest::testSystemListNotifications()

@@ -26,6 +26,7 @@ class OptionHandlerTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testFloatNumberOptionHandler_min_max);
   CPPUNIT_TEST(testHttpProxyOptionHandler);
   CPPUNIT_TEST(testDeprecatedOptionHandler);
+  CPPUNIT_TEST(testSiteConcurrentOptionHandler);
   CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -43,6 +44,7 @@ public:
   void testFloatNumberOptionHandler_min_max();
   void testHttpProxyOptionHandler();
   void testDeprecatedOptionHandler();
+  void testSiteConcurrentOptionHandler();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(OptionHandlerTest);
@@ -314,6 +316,34 @@ void OptionHandlerTest::testDeprecatedOptionHandler()
     CPPUNIT_ASSERT(!option.defined(PREF_TIMEOUT));
     CPPUNIT_ASSERT_EQUAL(std::string("foo"), option.get(PREF_DIR));
   }
+}
+
+void OptionHandlerTest::testSiteConcurrentOptionHandler()
+{
+  SiteConcurrentOptionHandler handler(PREF_SITE_CONCURRENT);
+  Option option;
+  handler.parse(option, " a.test:1 , b.test:3,10.0.0.1:2");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:1,b.test:3,10.0.0.1:2"),
+                       option.get(PREF_SITE_CONCURRENT));
+  // An invalid value is rejected whole.
+  const char* bad[] = {"a.test:1,b.test", "a.test:1,b.test:0",
+                       "a.test:1,a.test:2", "a.test:1,B.test:2",
+                       "a.test:1,b_c.test:2"};
+  for (auto s : bad) {
+    try {
+      handler.parse(option, s);
+      CPPUNIT_FAIL(std::string("exception must be thrown: ") + s);
+    }
+    catch (Exception& e) {
+    }
+    CPPUNIT_ASSERT_EQUAL(std::string("a.test:1,b.test:3,10.0.0.1:2"),
+                         option.get(PREF_SITE_CONCURRENT));
+  }
+  handler.parse(option, "");
+  CPPUNIT_ASSERT(option.defined(PREF_SITE_CONCURRENT));
+  CPPUNIT_ASSERT_EQUAL(std::string(), option.get(PREF_SITE_CONCURRENT));
+  CPPUNIT_ASSERT_EQUAL(std::string("HOST:N[,HOST:N...]"),
+                       handler.createPossibleValuesString());
 }
 
 } // namespace aria2

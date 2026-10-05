@@ -318,6 +318,10 @@ public:
 
   void setMaxConcurrentDownloads(int max) { maxConcurrentDownloads_ = max; }
 
+  // The configured max-concurrent-downloads. With
+  // optimize-concurrent-downloads=true the effective cap can be lower.
+  int getMaxConcurrentDownloads() const { return maxConcurrentDownloads_; }
+
   // Call this function if requestGroups_ queue should be maintained.
   // This function is added to reduce the call of maintenance, but at
   // the same time, it provides fast maintenance reaction.

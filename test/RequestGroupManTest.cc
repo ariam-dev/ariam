@@ -20,6 +20,8 @@
 #include "DownloadEngine.h"
 #include "SelectEventPoll.h"
 #include "UriListParser.h"
+#include "OptionParser.h"
+#include "OptionHandler.h"
 
 namespace aria2 {
 
@@ -33,6 +35,15 @@ class RequestGroupManTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testChangeReservedGroupPosition);
   CPPUNIT_TEST(testFillRequestGroupFromReserver);
   CPPUNIT_TEST(testFillRequestGroupFromReserver_uriParser);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteAcceptance);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteSlotFrees);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteFifo);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteCeiling);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteDefault);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteDefaultUnlimited);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteReclassify);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteUnset);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_siteParseError);
   CPPUNIT_TEST(testInsertReservedGroup);
   CPPUNIT_TEST(testAddDownloadResult);
   CPPUNIT_TEST_SUITE_END();
@@ -65,6 +76,15 @@ public:
   void testChangeReservedGroupPosition();
   void testFillRequestGroupFromReserver();
   void testFillRequestGroupFromReserver_uriParser();
+  void testFillRequestGroupFromReserver_siteAcceptance();
+  void testFillRequestGroupFromReserver_siteSlotFrees();
+  void testFillRequestGroupFromReserver_siteFifo();
+  void testFillRequestGroupFromReserver_siteCeiling();
+  void testFillRequestGroupFromReserver_siteDefault();
+  void testFillRequestGroupFromReserver_siteDefaultUnlimited();
+  void testFillRequestGroupFromReserver_siteReclassify();
+  void testFillRequestGroupFromReserver_siteUnset();
+  void testFillRequestGroupFromReserver_siteParseError();
   void testInsertReservedGroup();
   void testAddDownloadResult();
 };
@@ -238,6 +258,244 @@ void RequestGroupManTest::testFillRequestGroupFromReserver_uriParser()
   itr = rgman_->getReservedGroups().begin();
   CPPUNIT_ASSERT_EQUAL(rgs[0]->getGID(), (*itr)->getGID());
   CPPUNIT_ASSERT_EQUAL((size_t)3, rgman_->getRequestGroups().size());
+}
+
+namespace {
+std::shared_ptr<RequestGroup> createSiteGroup(const std::string& name,
+                                              const std::string& host,
+                                              const std::shared_ptr<Option>& op)
+{
+  auto opt = util::copy(op);
+  if (!host.empty()) {
+    opt->put(PREF_REFERER, "https://" + host + "/page");
+  }
+  return createRequestGroup(0, 0, "sc_" + name, "http://host/" + name, opt);
+}
+
+void setSiteLimits(Option& option, const std::string& sites,
+                   const std::string& defaultLimit)
+{
+  const auto& parser = OptionParser::getInstance();
+  parser->find(PREF_SITE_CONCURRENT)->parse(option, sites);
+  parser->find(PREF_SITE_CONCURRENT_DEFAULT)->parse(option, defaultLimit);
+}
+
+// Stands in for a started download with one running command.
+void activate(RequestGroupMan* rgman, const std::shared_ptr<RequestGroup>& g)
+{
+  g->setState(RequestGroup::STATE_ACTIVE);
+  g->setRequestGroupMan(rgman);
+  g->increaseNumCommand();
+  rgman->addRequestGroup(g);
+}
+
+std::string names(const RequestGroupList& list)
+{
+  std::string res;
+  for (const auto& g : list) {
+    if (!res.empty()) {
+      res += " ";
+    }
+    res += g->getFirstFilePath().substr(3);
+  }
+  return res;
+}
+} // namespace
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteAcceptance()
+{
+  setSiteLimits(*option_, "a.test:1,b.test:3", "2");
+  rgman_->setMaxConcurrentDownloads(6);
+  // A subdomain of a listed site counts toward that site; an unlisted
+  // site is its registrable domain.
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a1", "a.test"},
+           {"a2", "members.a.test"},
+           {"a3", "a.test"},
+           {"b1", "b.test"},
+           {"b2", "cdn.b.test"},
+           {"b3", "b.test"},
+           {"b4", "b.test"},
+           {"c1", "c.test"},
+           {"c2", "www.c.test"},
+           {"c3", "c.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  // b4 is skipped although slots are left: the B downloads started in
+  // the same call count toward B's limit.
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 b1 b2 b3 c1 c2"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a2 a3 b4 c3"),
+                       names(rgman_->getReservedGroups()));
+  for (const auto& g : rgman_->getReservedGroups()) {
+    CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_WAITING, g->getState());
+  }
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteSlotFrees()
+{
+  setSiteLimits(*option_, "a.test:1,b.test:3", "2");
+  rgman_->setMaxConcurrentDownloads(6);
+  std::vector<std::shared_ptr<RequestGroup>> running{
+      createSiteGroup("a1", "a.test", option_),
+      createSiteGroup("b1", "b.test", option_),
+      createSiteGroup("b2", "b.test", option_),
+      createSiteGroup("b3", "b.test", option_),
+      createSiteGroup("c1", "c.test", option_),
+      createSiteGroup("c2", "c.test", option_)};
+  for (const auto& g : running) {
+    activate(rgman_, g);
+  }
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a2", "a.test"}, {"a3", "a.test"}, {"b4", "b.test"}, {"c3", "c.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("a2 a3 b4 c3"),
+                       names(rgman_->getReservedGroups()));
+
+  // b2 ends, which frees a B slot and requests a queue check.
+  rgman_->clearQueueCheck();
+  running[2]->decreaseNumCommand();
+  CPPUNIT_ASSERT(rgman_->queueCheckRequested());
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 b1 b3 c1 c2 b4"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a2 a3 c3"),
+                       names(rgman_->getReservedGroups()));
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteFifo()
+{
+  setSiteLimits(*option_, "a.test:1", "0");
+  auto a1 = createSiteGroup("a1", "a.test", option_);
+  activate(rgman_, a1);
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a2", "a.test"}, {"a3", "a.test"}, {"x1", "x.test"}, {"x2", "x.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  // Downloads of an uncapped site queued after the capped site's
+  // waiting downloads start.
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 x1 x2"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a2 a3"),
+                       names(rgman_->getReservedGroups()));
+  // The capped site's waiting downloads keep their order.
+  a1->decreaseNumCommand();
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("x1 x2 a2"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a3"), names(rgman_->getReservedGroups()));
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteCeiling()
+{
+  setSiteLimits(*option_, "a.test:5", "5");
+  // max-concurrent-downloads is 3.
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a1", "a.test"}, {"c1", "c.test"}, {"a2", "a.test"}, {"c2", "c.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 c1 a2"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("c2"), names(rgman_->getReservedGroups()));
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteDefault()
+{
+  setSiteLimits(*option_, "", "1");
+  rgman_->setMaxConcurrentDownloads(6);
+  // Every unlisted site, and the no-referer site, has its own default
+  // limit. An unlisted subdomain counts toward its registrable domain.
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"c1", "c.test"},
+           {"c2", "x.c.test"},
+           {"d1", "d.test"},
+           {"d2", "d.test"},
+           {"n1", ""},
+           {"n2", ""}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("c1 d1 n1"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("c2 d2 n2"),
+                       names(rgman_->getReservedGroups()));
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteDefaultUnlimited()
+{
+  setSiteLimits(*option_, "a.test:1", "0");
+  rgman_->setMaxConcurrentDownloads(4);
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"c1", "c.test"}, {"c2", "c.test"}, {"n1", ""}, {"c3", "c.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("c1 c2 n1 c3"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT(rgman_->getReservedGroups().empty());
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteReclassify()
+{
+  setSiteLimits(*option_, "b.test:1", "0");
+  activate(rgman_, createSiteGroup("b1", "b.test", option_));
+  rgman_->addReservedGroup(createSiteGroup("x1", "x.b.test", option_));
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  // x.b.test belongs to site b.test, which is at its limit.
+  CPPUNIT_ASSERT_EQUAL(std::string("x1"), names(rgman_->getReservedGroups()));
+  // Listing x.b.test moves the queued download to its own site.
+  setSiteLimits(*option_, "b.test:1,x.b.test:1", "0");
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("b1 x1"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT(rgman_->getReservedGroups().empty());
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteUnset()
+{
+  // No site option is set: only max-concurrent-downloads (3) limits.
+  for (const auto& name : {"a1", "a2", "a3", "a4"}) {
+    rgman_->addReservedGroup(createSiteGroup(name, "a.test", option_));
+  }
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 a2 a3"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a4"), names(rgman_->getReservedGroups()));
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_siteParseError()
+{
+  setSiteLimits(*option_, "a.test:1", "0");
+  activate(rgman_, createSiteGroup("a1", "a.test", option_));
+  for (const auto& p : std::vector<std::pair<std::string, std::string>>{
+           {"a2", "a.test"}, {"x1", "x.test"}, {"a3", "a.test"}}) {
+    rgman_->addReservedGroup(createSiteGroup(p.first, p.second, option_));
+  }
+  // The next input file entry has an option line that does not parse.
+  std::string path =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupManTest_siteParseError.txt";
+  std::ofstream o(path.c_str(), std::ios::binary);
+  o << "http://host/bad\n"
+    << " split=bad\n";
+  o.close();
+  rgman_->setUriListParser(std::make_shared<UriListParser>(path));
+  try {
+    rgman_->fillRequestGroupFromReserver(e_.get());
+    CPPUNIT_FAIL("exception must be thrown.");
+  }
+  catch (RecoverableException& e) {
+    // success
+  }
+  // The downloads skipped before the error stay queued in their order.
+  CPPUNIT_ASSERT_EQUAL(std::string("a1 x1"),
+                       names(rgman_->getRequestGroups()));
+  CPPUNIT_ASSERT_EQUAL(std::string("a2 a3"),
+                       names(rgman_->getReservedGroups()));
 }
 
 void RequestGroupManTest::testInsertReservedGroup()

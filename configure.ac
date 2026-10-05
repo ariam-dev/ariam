@@ -525,6 +525,9 @@ if test "x$with_libcares" = "xyes"; then
   fi
 fi
 
+# libpsl is required: the site rule uses its builtin Public Suffix List.
+PKG_CHECK_MODULES([LIBPSL], [libpsl])
+
 use_md=""
 if test "x$have_appletls" = "xyes"; then
   use_md="apple"
@@ -1111,6 +1114,7 @@ LibGcrypt:      $have_libgcrypt (CFLAGS='$LIBGCRYPT_CFLAGS' LIBS='$LIBGCRYPT_LIB
 LibXML2:        $have_libxml2 (CFLAGS='$LIBXML2_CFLAGS' LIBS='$LIBXML2_LIBS')
 LibExpat:       $have_libexpat (CFLAGS='$EXPAT_CFLAGS' LIBS='$EXPAT_LIBS')
 LibCares:       $have_libcares (CFLAGS='$LIBCARES_CFLAGS' LIBS='$LIBCARES_LIBS')
+LibPSL:         yes (CFLAGS='$LIBPSL_CFLAGS' LIBS='$LIBPSL_LIBS')
 Zlib:           $have_zlib (CFLAGS='$ZLIB_CFLAGS' LIBS='$ZLIB_LIBS')
 Libssh2:        $have_libssh2 (CFLAGS='$LIBSSH2_CFLAGS' LIBS='$LIBSSH2_LIBS')
 Tcmalloc:       $have_tcmalloc (CFLAGS='$TCMALLOC_CFLAGS' LIBS='$TCMALLOC_LIBS')

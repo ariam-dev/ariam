@@ -36,6 +36,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <map>
 #include <sstream>
 
 #include "Logger.h"
@@ -69,6 +70,12 @@
 #include "MessageDigest.h"
 #include "message_digest_helper.h"
 #include "OpenedFileCounter.h"
+#include "SiteConcurrencyFile.h"
+#include "SiteConcurrency.h"
+#include "File.h"
+#include "Request.h"
+#include "uri.h"
+#include "A2STR.h"
 #ifdef ENABLE_BITTORRENT
 #  include "bittorrent_helper.h"
 #  include "BtRegistry.h"
@@ -147,6 +154,15 @@ const char KEY_NUM_ACTIVE[] = "numActive";
 const char KEY_NUM_STOPPED_TOTAL[] = "numStoppedTotal";
 const char KEY_VERIFIED_LENGTH[] = "verifiedLength";
 const char KEY_VERIFY_PENDING[] = "verifyIntegrityPending";
+const char KEY_SITE[] = "site";
+const char KEY_DEFAULT[] = "default";
+const char KEY_CEILING[] = "ceiling";
+const char KEY_SITES[] = "sites";
+const char KEY_LISTED[] = "listed";
+const char KEY_LIMIT[] = "limit";
+const char KEY_ACTIVE[] = "active";
+const char KEY_WAITING[] = "waiting";
+const char KEY_PAUSED[] = "paused";
 } // namespace
 
 namespace {
@@ -613,8 +629,50 @@ bool requested_key(const std::vector<std::string>& keys, const std::string& k)
 }
 } // namespace
 
+SiteConcurrency createSiteConcurrency(DownloadEngine* e,
+                                      const std::vector<std::string>& keys)
+{
+  if (requested_key(keys, KEY_SITE)) {
+    return SiteConcurrency(*e);
+  }
+  return SiteConcurrency({}, 0);
+}
+
+namespace {
+// Basename of the first file's path; before the path is determined,
+// the file name aria2 derives from the first URI. Only the first
+// FileEntry is used: an HTTP/FTP download has exactly one, and
+// BitTorrent and Metalink are compiled out in ariam.
+std::string getDownloadName(
+    const std::vector<std::shared_ptr<FileEntry>>& fileEntries)
+{
+  if (fileEntries.empty()) {
+    return A2STR::NIL;
+  }
+  const auto& fe = fileEntries.front();
+  if (!fe->getPath().empty()) {
+    return File(fe->getPath()).getBasename();
+  }
+  // The order of files[].uris.
+  const auto& spent = fe->getSpentUris();
+  const auto& remaining = fe->getRemainingUris();
+  const std::string* uri = !spent.empty()       ? &spent.front()
+                           : !remaining.empty() ? &remaining.front()
+                                                : nullptr;
+  uri::UriStruct us;
+  if (!uri || !uri::parse(us, *uri)) {
+    return A2STR::NIL;
+  }
+  return util::createSafePath(
+      us.file.empty() ? Request::DEFAULT_FILE
+                      : util::percentDecode(std::begin(us.file),
+                                            std::end(us.file)));
+}
+} // namespace
+
 void gatherProgressCommon(Dict* entryDict,
                           const std::shared_ptr<RequestGroup>& group,
+                          const SiteConcurrency& sites,
                           const std::vector<std::string>& keys)
 {
   auto& ps = group->getPieceStorage();
@@ -687,6 +745,12 @@ void gatherProgressCommon(Dict* entryDict,
   }
   if (requested_key(keys, KEY_DIR)) {
     entryDict->put(KEY_DIR, group->getOption()->get(PREF_DIR));
+  }
+  if (requested_key(keys, KEY_NAME)) {
+    entryDict->put(KEY_NAME, getDownloadName(dctx->getFileEntries()));
+  }
+  if (requested_key(keys, KEY_SITE)) {
+    entryDict->put(KEY_SITE, sites.classify(*group->getOption()).site);
   }
 }
 
@@ -786,9 +850,10 @@ void gatherPeer(List* peers, const std::shared_ptr<PeerStorage>& ps)
 
 namespace {
 void gatherProgress(Dict* entryDict, const std::shared_ptr<RequestGroup>& group,
-                    DownloadEngine* e, const std::vector<std::string>& keys)
+                    DownloadEngine* e, const SiteConcurrency& sites,
+                    const std::vector<std::string>& keys)
 {
-  gatherProgressCommon(entryDict, group, keys);
+  gatherProgressCommon(entryDict, group, sites, keys);
 #ifdef ENABLE_BITTORRENT
   if (group->getDownloadContext()->hasAttribute(CTX_ATTR_BT)) {
     gatherProgressBitTorrent(
@@ -819,6 +884,7 @@ void gatherProgress(Dict* entryDict, const std::shared_ptr<RequestGroup>& group,
 
 void gatherStoppedDownload(Dict* entryDict,
                            const std::shared_ptr<DownloadResult>& ds,
+                           const SiteConcurrency& sites,
                            const std::vector<std::string>& keys)
 {
   if (requested_key(keys, KEY_GID)) {
@@ -907,6 +973,14 @@ void gatherStoppedDownload(Dict* entryDict,
   }
   if (requested_key(keys, KEY_DIR)) {
     entryDict->put(KEY_DIR, ds->dir);
+  }
+  if (requested_key(keys, KEY_NAME)) {
+    entryDict->put(KEY_NAME, getDownloadName(ds->fileEntries));
+  }
+  if (requested_key(keys, KEY_SITE)) {
+    // Referer from the download's option; site list from the engine's.
+    entryDict->put(KEY_SITE,
+                   ds->option ? sites.classify(*ds->option).site : SITE_NONE);
   }
 
 #ifdef ENABLE_BITTORRENT
@@ -1007,13 +1081,14 @@ std::unique_ptr<ValueBase> TellStatusRpcMethod::process(const RpcRequest& req,
 
   auto group = e->getRequestGroupMan()->findGroup(gid);
   auto entryDict = Dict::g();
+  auto sites = createSiteConcurrency(e, keys);
   if (!group) {
     auto ds = e->getRequestGroupMan()->findDownloadResult(gid);
     if (!ds) {
       throw DL_ABORT_EX(
           fmt("No such download for GID#%s", GroupId::toHex(gid).c_str()));
     }
-    gatherStoppedDownload(entryDict.get(), ds, keys);
+    gatherStoppedDownload(entryDict.get(), ds, sites, keys);
   }
   else {
     if (requested_key(keys, KEY_STATUS)) {
@@ -1029,7 +1104,7 @@ std::unique_ptr<ValueBase> TellStatusRpcMethod::process(const RpcRequest& req,
         }
       }
     }
-    gatherProgress(entryDict.get(), group, e, keys);
+    gatherProgress(entryDict.get(), group, e, sites, keys);
   }
   return std::move(entryDict);
 }
@@ -1042,12 +1117,13 @@ std::unique_ptr<ValueBase> TellActiveRpcMethod::process(const RpcRequest& req,
   toStringList(std::back_inserter(keys), keysParam);
   auto list = List::g();
   bool statusReq = requested_key(keys, KEY_STATUS);
+  auto sites = createSiteConcurrency(e, keys);
   for (auto& group : e->getRequestGroupMan()->getRequestGroups()) {
     auto entryDict = Dict::g();
     if (statusReq) {
       entryDict->put(KEY_STATUS, VLB_ACTIVE);
     }
-    gatherProgress(entryDict.get(), group, e, keys);
+    gatherProgress(entryDict.get(), group, e, sites, keys);
     list->append(std::move(entryDict));
   }
   return std::move(list);
@@ -1060,7 +1136,8 @@ const RequestGroupList& TellWaitingRpcMethod::getItems(DownloadEngine* e) const
 
 void TellWaitingRpcMethod::createEntry(
     Dict* entryDict, const std::shared_ptr<RequestGroup>& item,
-    DownloadEngine* e, const std::vector<std::string>& keys) const
+    DownloadEngine* e, const SiteConcurrency& sites,
+    const std::vector<std::string>& keys) const
 {
   if (requested_key(keys, KEY_STATUS)) {
     if (item->isPauseRequested()) {
@@ -1070,7 +1147,7 @@ void TellWaitingRpcMethod::createEntry(
       entryDict->put(KEY_STATUS, VLB_WAITING);
     }
   }
-  gatherProgress(entryDict, item, e, keys);
+  gatherProgress(entryDict, item, e, sites, keys);
 }
 
 const DownloadResultList&
@@ -1081,9 +1158,10 @@ TellStoppedRpcMethod::getItems(DownloadEngine* e) const
 
 void TellStoppedRpcMethod::createEntry(
     Dict* entryDict, const std::shared_ptr<DownloadResult>& item,
-    DownloadEngine* e, const std::vector<std::string>& keys) const
+    DownloadEngine* e, const SiteConcurrency& sites,
+    const std::vector<std::string>& keys) const
 {
-  gatherStoppedDownload(entryDict, item, keys);
+  gatherStoppedDownload(entryDict, item, sites, keys);
 }
 
 std::unique_ptr<ValueBase>
@@ -1135,6 +1213,11 @@ std::unique_ptr<ValueBase> ChangeOptionRpcMethod::process(const RpcRequest& req,
       gatherChangeableOptionForReserved(&option, optsParam);
     }
     changeOption(group, option, e);
+    if (group->getState() == RequestGroup::STATE_WAITING) {
+      // A header or referer change can change the site of a waiting
+      // download.
+      e->getRequestGroupMan()->requestQueueCheck();
+    }
   }
   else {
     throw DL_ABORT_EX(
@@ -1410,6 +1493,68 @@ std::unique_ptr<ValueBase> SaveSessionRpcMethod::process(const RpcRequest& req,
       fmt("Failed to serialize session to '%s'.", filename.c_str()));
 }
 
+namespace {
+struct SiteCount {
+  int active = 0;
+  int waiting = 0;
+  int paused = 0;
+};
+
+std::unique_ptr<Dict> createSiteEntry(const std::string& site, bool listed,
+                                      int limit, const SiteCount& count)
+{
+  auto entry = Dict::g();
+  entry->put(KEY_SITE, site);
+  entry->put(KEY_LISTED, listed ? VLB_TRUE : VLB_FALSE);
+  entry->put(KEY_LIMIT, util::itos(limit));
+  entry->put(KEY_ACTIVE, util::itos(count.active));
+  entry->put(KEY_WAITING, util::itos(count.waiting));
+  entry->put(KEY_PAUSED, util::itos(count.paused));
+  return entry;
+}
+} // namespace
+
+std::unique_ptr<ValueBase>
+GetSiteSummaryRpcMethod::process(const RpcRequest& req, DownloadEngine* e)
+{
+  auto& rgman = e->getRequestGroupMan();
+  SiteConcurrency sites(*e);
+  std::map<std::string, SiteCount> counts;
+  for (const auto& group : rgman->getRequestGroups()) {
+    ++counts[sites.classify(*group->getOption()).site].active;
+  }
+  for (const auto& group : rgman->getReservedGroups()) {
+    auto& count = counts[sites.classify(*group->getOption()).site];
+    if (group->isPauseRequested()) {
+      ++count.paused;
+    }
+    else {
+      ++count.waiting;
+    }
+  }
+  // Listed sites in site-concurrent order, even without downloads;
+  // then unlisted sites in byte order.
+  auto list = List::g();
+  for (const auto& s : sites.getSites()) {
+    SiteCount count;
+    auto i = counts.find(s.site);
+    if (i != std::end(counts)) {
+      count = (*i).second;
+      counts.erase(i);
+    }
+    list->append(createSiteEntry(s.site, true, s.limit, count));
+  }
+  for (const auto& c : counts) {
+    list->append(
+        createSiteEntry(c.first, false, sites.getDefaultLimit(), c.second));
+  }
+  auto res = Dict::g();
+  res->put(KEY_DEFAULT, util::itos(sites.getDefaultLimit()));
+  res->put(KEY_CEILING, util::itos(rgman->getMaxConcurrentDownloads()));
+  res->put(KEY_SITES, std::move(list));
+  return std::move(res);
+}
+
 std::unique_ptr<ValueBase>
 SystemMulticallRpcMethod::process(const RpcRequest& req, DownloadEngine* e)
 {
@@ -1647,7 +1792,24 @@ void changeOption(const std::shared_ptr<RequestGroup>& group,
 
 void changeGlobalOption(const Option& option, DownloadEngine* e)
 {
+  bool siteLimitChanged = option.defined(PREF_SITE_CONCURRENT) ||
+                          option.defined(PREF_SITE_CONCURRENT_DEFAULT);
+  if (siteLimitChanged && !e->getOption()->blank(PREF_SITE_CONCURRENT_FILE)) {
+    // Persist before the merge, so that a failed write changes no
+    // running value. Both value sources are already parsed by their
+    // option handlers.
+    Option candidate;
+    for (auto pref : {PREF_SITE_CONCURRENT, PREF_SITE_CONCURRENT_DEFAULT}) {
+      candidate.put(pref, option.defined(pref) ? option.get(pref)
+                                               : e->getOption()->get(pref));
+    }
+    saveSiteConcurrencyFile(e->getOption()->get(PREF_SITE_CONCURRENT_FILE),
+                            candidate);
+  }
   e->getOption()->merge(option);
+  if (siteLimitChanged) {
+    e->getRequestGroupMan()->requestQueueCheck();
+  }
   if (option.defined(PREF_MAX_OVERALL_DOWNLOAD_LIMIT)) {
     e->getRequestGroupMan()->setMaxOverallDownloadSpeedLimit(
         option.getAsInt(PREF_MAX_OVERALL_DOWNLOAD_LIMIT));

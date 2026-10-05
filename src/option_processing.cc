@@ -60,6 +60,7 @@
 #include "console.h"
 #include "array_fun.h"
 #include "LogFactory.h"
+#include "SiteConcurrencyFile.h"
 #ifndef HAVE_DAEMON
 #  include "daemon.h"
 #endif // !HAVE_DAEMON
@@ -299,6 +300,20 @@ error_code::Value option_processing(Option& op, bool standalone,
     global::cerr()->printf("%s", e.stackTrace().c_str());
     showUsage("", oparser, global::cerr());
     return e.getErrorCode();
+  }
+  // Persisted site limits override the configuration file and the
+  // command-line options.
+  {
+    std::string siteFile = op.get(PREF_SITE_CONCURRENT_FILE);
+    if (!siteFile.empty()) {
+      try {
+        loadSiteConcurrencyFile(op, siteFile);
+      }
+      catch (Exception& e) {
+        global::cerr()->printf("%s", e.stackTrace().c_str());
+        return e.getErrorCode();
+      }
+    }
   }
   if (standalone && op.getAsBool(PREF_STDERR)) {
     global::redirectStdoutToStderr();

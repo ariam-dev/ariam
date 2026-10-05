@@ -504,7 +504,13 @@ int changeGlobalOption(Session* session, const KeyVals& options)
     A2_LOG_INFO_EX(EX_EXCEPTION_CAUGHT, err);
     return -1;
   }
-  changeGlobalOption(option, e.get());
+  try {
+    changeGlobalOption(option, e.get());
+  }
+  catch (RecoverableException& err) {
+    A2_LOG_INFO_EX(EX_EXCEPTION_CAUGHT, err);
+    return -1;
+  }
   return 0;
 }
 

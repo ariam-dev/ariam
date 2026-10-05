@@ -90,7 +90,9 @@ aria2c_SOURCES = AllTest.cc\
 	WrDiskCacheEntryTest.cc\
 	GroupIdTest.cc\
 	IndexedListTest.cc \
-	SimpleRandomizerTest.cc
+	SimpleRandomizerTest.cc\
+	SiteConcurrencyTest.cc\
+	SiteConcurrencyFileTest.cc
 
 if ENABLE_XML_RPC
 aria2c_SOURCES += XmlRpcRequestParserControllerTest.cc
@@ -258,6 +260,7 @@ aria2c_LDADD = \
 	@LIBGCRYPT_LIBS@ \
 	@LIBSSH2_LIBS@ \
 	@LIBCARES_LIBS@ \
+	@LIBPSL_LIBS@ \
 	@WSLAY_LIBS@ \
 	@CPPUNIT_LIBS@ \
 	@TCMALLOC_LIBS@ \
@@ -285,6 +288,7 @@ AM_CPPFLAGS = \
 	@LIBGCRYPT_CFLAGS@ \
 	@LIBSSH2_CFLAGS@ \
 	@LIBCARES_CFLAGS@ \
+	@LIBPSL_CFLAGS@ \
 	@WSLAY_CFLAGS@ \
 	@TCMALLOC_CFLAGS@ \
 	@JEMALLOC_CFLAGS@

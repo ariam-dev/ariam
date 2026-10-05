@@ -179,6 +179,12 @@ extern PrefPtr PREF_OPTIMIZE_CONCURRENT_DOWNLOADS;
 extern PrefPtr PREF_OPTIMIZE_CONCURRENT_DOWNLOADS_COEFFA;
 // value: 1*digit ['.' [ 1*digit ] ]
 extern PrefPtr PREF_OPTIMIZE_CONCURRENT_DOWNLOADS_COEFFB;
+// value: HOST:N[,HOST:N...]
+extern PrefPtr PREF_SITE_CONCURRENT;
+// value: 1*digit
+extern PrefPtr PREF_SITE_CONCURRENT_DEFAULT;
+// value: string that your file system recognizes as a file name.
+extern PrefPtr PREF_SITE_CONCURRENT_FILE;
 // value: true | false
 extern PrefPtr PREF_FORCE_SEQUENTIAL;
 // value: true | false

@@ -700,6 +700,28 @@ std::vector<OptionHandler*> OptionHandlerFactory::createOptionHandlers()
     handlers.push_back(op);
   }
   {
+    OptionHandler* op(new SiteConcurrentOptionHandler(PREF_SITE_CONCURRENT,
+                                                      TEXT_SITE_CONCURRENT));
+    op->addTag(TAG_ADVANCED);
+    op->setChangeGlobalOption(true);
+    handlers.push_back(op);
+  }
+  {
+    OptionHandler* op(new NumberOptionHandler(PREF_SITE_CONCURRENT_DEFAULT,
+                                              TEXT_SITE_CONCURRENT_DEFAULT,
+                                              "0", 0, INT32_MAX));
+    op->addTag(TAG_ADVANCED);
+    op->setChangeGlobalOption(true);
+    handlers.push_back(op);
+  }
+  {
+    OptionHandler* op(new LocalFilePathOptionHandler(
+        PREF_SITE_CONCURRENT_FILE, TEXT_SITE_CONCURRENT_FILE, NO_DEFAULT_VALUE,
+        /* acceptStdin = */ false, 0, /* mustExist = */ false));
+    op->addTag(TAG_ADVANCED);
+    handlers.push_back(op);
+  }
+  {
     OptionHandler* op(new UnitNumberOptionHandler(PREF_SOCKET_RECV_BUFFER_SIZE,
                                                   TEXT_SOCKET_RECV_BUFFER_SIZE,
                                                   "0", 0, 16_m));

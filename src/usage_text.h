@@ -260,6 +260,33 @@
     "                              number of parallel downloads remains constrained\n" \
     "                              under the maximum defined by the\n" \
     "                              max-concurrent-downloads parameter.")
+#define TEXT_SITE_CONCURRENT                                            \
+  _(" --site-concurrent=HOST:N[,HOST:N...] Set the maximum number of parallel\n" \
+    "                              downloads N for each listed site HOST. The site\n" \
+    "                              of a download comes from the host of the first\n" \
+    "                              non-empty Referer line in --header, otherwise\n" \
+    "                              from --referer unless it is '*'. HOST matches\n" \
+    "                              itself and every subdomain. When several HOSTs\n" \
+    "                              match, the longest one wins. HOST is a lowercase\n" \
+    "                              domain name or IP address. N must be at least 1.\n" \
+    "                              An IPv6 HOST is written without brackets, for\n" \
+    "                              example, ::1:2 sets N to 2 for site ::1.\n" \
+    "                              See also --site-concurrent-default and\n" \
+    "                              --max-concurrent-downloads options.")
+#define TEXT_SITE_CONCURRENT_DEFAULT                                    \
+  _(" --site-concurrent-default=N  Set the maximum number of parallel downloads\n" \
+    "                              for each site not listed in --site-concurrent.\n" \
+    "                              An unlisted site is the registrable domain of\n" \
+    "                              the referer host (Public Suffix List), or the\n" \
+    "                              whole host if it has none. An IP address is its\n" \
+    "                              own site. Downloads without a referer share the\n" \
+    "                              site (none). 0 means no per-site limit.")
+#define TEXT_SITE_CONCURRENT_FILE                                       \
+  _(" --site-concurrent-file=FILE  Save --site-concurrent and\n" \
+    "                              --site-concurrent-default to FILE when they are\n" \
+    "                              changed by RPC. If FILE exists at startup, its\n" \
+    "                              values override the configuration file and the\n" \
+    "                              command-line options.")
 #define TEXT_LOAD_COOKIES                                               \
   _(" --load-cookies=FILE          Load Cookies from FILE using the Firefox3 format\n" \
     "                              and Mozilla/Firefox(1.x/2.x)/Netscape format.")
