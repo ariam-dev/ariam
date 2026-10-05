@@ -95,6 +95,15 @@ void AbstractHttpServerResponseCommand::updateReadWriteCheck()
   }
 }
 
+void AbstractHttpServerResponseCommand::disableWriteCheckSocket()
+{
+  if (!writeCheck_) {
+    return;
+  }
+  e_->deleteSocketForWriteCheck(socket_, this);
+  writeCheck_ = false;
+}
+
 bool AbstractHttpServerResponseCommand::execute()
 {
   if (e_->getRequestGroupMan()->downloadFinished() || e_->isHaltRequested()) {

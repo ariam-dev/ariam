@@ -72,6 +72,9 @@ public:
   virtual ~AbstractHttpServerResponseCommand();
 
   virtual bool execute() CXX11_OVERRIDE;
+
+  // updateReadWriteCheck() re-adds the socket when a send leaves data buffered.
+  void disableWriteCheckSocket();
 };
 
 } // namespace aria2
