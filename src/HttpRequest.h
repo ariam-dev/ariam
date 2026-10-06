@@ -235,6 +235,16 @@ public:
   void setNoWantDigest(bool b) { noWantDigest_ = b; }
 };
 
+// Returns headers (LF-delimited lines, as in the header option) to send to
+// req's current URI. Cookie and Authorization lines (names case-insensitive)
+// are kept only if the current URI has the origin of req's original URI
+// (Request::getUri(); a redirect changes only the current URI): same scheme
+// (case-insensitive), host (normalized by SiteConcurrency::normalizeHost()),
+// and effective port. If the original URI does not parse, they are removed.
+// Other lines are kept.
+std::string scopeCredentialHeaders(const std::string& headers,
+                                   const Request& req);
+
 } // namespace aria2
 
 #endif // D_HTTP_REQUEST_H

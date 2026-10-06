@@ -40,6 +40,13 @@ class HttpRequestTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testAcceptMetalink);
   CPPUNIT_TEST(testEnableAcceptEncoding);
   CPPUNIT_TEST(testConditionalRequest);
+  CPPUNIT_TEST(testScopeCredentialHeaders_noRedirect);
+  CPPUNIT_TEST(testScopeCredentialHeaders_requestOrigin);
+  CPPUNIT_TEST(testScopeCredentialHeaders_origin);
+  CPPUNIT_TEST(testScopeCredentialHeaders_scheme);
+  CPPUNIT_TEST(testScopeCredentialHeaders_headerNames);
+  CPPUNIT_TEST(testScopeCredentialHeaders_unparsableUri);
+  CPPUNIT_TEST(testCreateRequest_credentialScope);
   CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -71,6 +78,13 @@ public:
   void testAcceptMetalink();
   void testEnableAcceptEncoding();
   void testConditionalRequest();
+  void testScopeCredentialHeaders_noRedirect();
+  void testScopeCredentialHeaders_requestOrigin();
+  void testScopeCredentialHeaders_origin();
+  void testScopeCredentialHeaders_scheme();
+  void testScopeCredentialHeaders_headerNames();
+  void testScopeCredentialHeaders_unparsableUri();
+  void testCreateRequest_credentialScope();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(HttpRequestTest);
@@ -928,6 +942,240 @@ void HttpRequestTest::testConditionalRequest()
   httpRequest.clearHeader();
   httpRequest.addHeader("If-Modified-Since: dummy");
   CPPUNIT_ASSERT(httpRequest.conditionalRequest());
+}
+
+namespace {
+const std::string HEADERS = "Referer: https://www.example.com/page\n"
+                            "Cookie: session=s3cr3t\n"
+                            "X-Foo: bar\n"
+                            "Authorization: Bearer t0ken\n";
+
+const std::string HEADERS_WITHOUT_CREDENTIALS =
+    "Referer: https://www.example.com/page\n"
+    "X-Foo: bar\n";
+
+std::string scopeRedirect(const std::string& uri, const std::string& target,
+                          const std::string& headers = HEADERS)
+{
+  Request req;
+  CPPUNIT_ASSERT(req.setUri(uri));
+  CPPUNIT_ASSERT(req.redirectUri(target));
+  return scopeCredentialHeaders(headers, req);
+}
+} // namespace
+
+void HttpRequestTest::testScopeCredentialHeaders_noRedirect()
+{
+  for (const auto& uri :
+       {"https://dl.example.com/file.zip", "http://dl.example.com/file.zip",
+        "https://mirror.other.net/file.zip", "http://10.0.0.1/file.zip",
+        "https://[2001:db8::1]/file.zip", "http://localhost/file.zip"}) {
+    Request req;
+    CPPUNIT_ASSERT(req.setUri(uri));
+    CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, req));
+  }
+}
+
+void HttpRequestTest::testScopeCredentialHeaders_requestOrigin()
+{
+  // One download's URIs on two origins: each Request keeps them on its URI.
+  Request first;
+  CPPUNIT_ASSERT(first.setUri("https://www.example.com/file.zip"));
+  Request second;
+  CPPUNIT_ASSERT(second.setUri("https://mirror.other.net/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, first));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, second));
+  // Bound by the Request's own URI, not by another URI of the download.
+  CPPUNIT_ASSERT(second.redirectUri("https://www.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, second));
+  CPPUNIT_ASSERT(first.redirectUri("https://www.example.com/files/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, first));
+
+  // Checked on every request: a later segment or pooled reuse of the
+  // redirected Request drops them again; resetUri() (a retry) returns to
+  // the Request's URI and keeps them.
+  Request req;
+  CPPUNIT_ASSERT(req.setUri("https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT(req.redirectUri("https://attacker.net/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, req));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, req));
+  CPPUNIT_ASSERT(req.resetUri());
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, req));
+  CPPUNIT_ASSERT(req.redirectUri("https://attacker.net/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, req));
+  CPPUNIT_ASSERT(req.redirectUri("https://dl.example.com/files/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, req));
+}
+
+void HttpRequestTest::testScopeCredentialHeaders_origin()
+{
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com/files/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("https://DL.Example.COM/file.zip",
+                                     "https://dl.example.com./file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("HTTPS://dl.example.com:443/file.zip",
+                                     "https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("https://dl.example.com:443/file.zip",
+                                     "https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com:443/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("http://dl.example.com/file.zip",
+                                     "http://dl.example.com:80/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeRedirect("http://10.0.0.1/file.zip",
+                                              "http://10.0.0.1/f/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS,
+                       scopeRedirect("https://[2001:db8::1]/file.zip",
+                                     "https://[2001:db8::1]/f/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://www.example.com/file.zip",
+                                     "https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://example.com/file.zip",
+                                     "https://cdn.dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://members.example.co.uk/file.zip",
+                                     "https://dl.example.co.uk/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://customer.co.uk/file.zip",
+                                     "https://attacker.co.uk/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://a.github.io/file.zip",
+                                     "https://b.github.io/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://example.com/file.zip",
+                                     "https://other.net/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com.other.net/f"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("http://10.0.0.1/file.zip",
+                                     "http://10.0.0.2/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://example.com/file.zip",
+                                     "https://[2001:db8::1]/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("http://localhost/file.zip",
+                                     "http://otherhost/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com:8443/file.zip"));
+}
+
+void HttpRequestTest::testScopeCredentialHeaders_scheme()
+{
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "http://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://www.example.com/file.zip",
+                                     "http://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("http://dl.example.com/file.zip",
+                                     "https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com:8443/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("http://dl.example.com:8080/file.zip",
+                                     "https://dl.example.com:8080/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com:8080/file.zip",
+                                     "http://dl.example.com:8080/file.zip"));
+  // Each request is checked against the Request's URI, so https after an
+  // http hop keeps them.
+  Request req;
+  CPPUNIT_ASSERT(req.setUri("https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT(req.redirectUri("http://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, req));
+  CPPUNIT_ASSERT(req.redirectUri("https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS, scopeCredentialHeaders(HEADERS, req));
+}
+
+void HttpRequestTest::testScopeCredentialHeaders_headerNames()
+{
+  std::string headers = "cookie: a=1\n"
+                        "AUTHORIZATION: Basic dXNlcjpwYXNz\n"
+                        "CoOkIe : b=2\n"
+                        "  Authorization: Bearer t0ken\r\n"
+                        "Cookie2: $Version=1\n"
+                        "X-Cookie: c=3\n"
+                        "X-Authorization-Hint: none\n"
+                        "Proxy-Authorization: Basic cHJveHk6cGFzcw==\n"
+                        "referer: https://www.example.com/page\n"
+                        "X-Foo: bar\n";
+  std::string kept = "Cookie2: $Version=1\n"
+                     "X-Cookie: c=3\n"
+                     "X-Authorization-Hint: none\n"
+                     "Proxy-Authorization: Basic cHJveHk6cGFzcw==\n"
+                     "referer: https://www.example.com/page\n"
+                     "X-Foo: bar\n";
+  CPPUNIT_ASSERT_EQUAL(kept,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://other.net/file.zip", headers));
+  CPPUNIT_ASSERT_EQUAL(headers,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "https://dl.example.com/files/file.zip",
+                                     headers));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "http://other.net/file.zip",
+                                     HEADERS_WITHOUT_CREDENTIALS));
+  CPPUNIT_ASSERT_EQUAL(std::string(),
+                       scopeRedirect("https://dl.example.com/file.zip",
+                                     "http://other.net/file.zip",
+                                     std::string()));
+}
+
+void HttpRequestTest::testScopeCredentialHeaders_unparsableUri()
+{
+  Request empty;
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, empty));
+  Request req;
+  CPPUNIT_ASSERT(!req.setUri("dl.example.com"));
+  CPPUNIT_ASSERT(req.redirectUri("https://dl.example.com/file.zip"));
+  CPPUNIT_ASSERT_EQUAL(HEADERS_WITHOUT_CREDENTIALS,
+                       scopeCredentialHeaders(HEADERS, req));
+}
+
+void HttpRequestTest::testCreateRequest_credentialScope()
+{
+  for (const auto& target : {"https://www.example.com/files/file.zip",
+                             "https://dl.example.com/file.zip",
+                             "https://cdn.other.net/file.zip"}) {
+    auto request = std::make_shared<Request>();
+    CPPUNIT_ASSERT(request->setUri("https://www.example.com/file.zip"));
+    CPPUNIT_ASSERT(request->redirectUri(target));
+
+    HttpRequest httpRequest;
+    httpRequest.disableContentEncoding();
+    httpRequest.setRequest(request);
+    httpRequest.setAuthConfigFactory(authConfigFactory_.get());
+    httpRequest.setOption(option_.get());
+    httpRequest.setNoWantDigest(true);
+    httpRequest.addHeader(scopeCredentialHeaders(HEADERS, *request));
+
+    bool sameOrigin = request->getHost() == "www.example.com";
+    auto text = httpRequest.createRequest();
+    auto has = [&text](const std::string& line) {
+      return text.find("\r\n" + line + "\r\n") != std::string::npos;
+    };
+    CPPUNIT_ASSERT_EQUAL(sameOrigin, has("Cookie: session=s3cr3t"));
+    CPPUNIT_ASSERT_EQUAL(sameOrigin, has("Authorization: Bearer t0ken"));
+    CPPUNIT_ASSERT(has("Referer: https://www.example.com/page"));
+    CPPUNIT_ASSERT(has("X-Foo: bar"));
+  }
 }
 
 } // namespace aria2

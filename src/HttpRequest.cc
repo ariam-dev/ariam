@@ -53,6 +53,8 @@
 #include "Request.h"
 #include "DownloadHandlerConstants.h"
 #include "MessageDigest.h"
+#include "SiteConcurrency.h"
+#include "uri.h"
 
 namespace aria2 {
 
@@ -428,6 +430,51 @@ bool HttpRequest::conditionalRequest() const
     }
   }
   return false;
+}
+
+namespace {
+bool inCredentialScope(const Request& req)
+{
+  uri::UriStruct origin;
+  if (!uri::parse(origin, req.getUri())) {
+    return false;
+  }
+  // uri::parse() fills in the default port, so both are effective ports.
+  if (!util::strieq(origin.protocol, req.getProtocol()) ||
+      origin.port != req.getPort()) {
+    return false;
+  }
+  auto originHost = SiteConcurrency::normalizeHost(origin.host);
+  return !originHost.empty() &&
+         originHost == SiteConcurrency::normalizeHost(req.getHost());
+}
+
+bool isCredentialHeader(const std::string& line)
+{
+  auto p = util::divide(std::begin(line), std::end(line), ':');
+  return util::strieq(p.first.first, p.first.second, "cookie") ||
+         util::strieq(p.first.first, p.first.second, "authorization");
+}
+} // namespace
+
+std::string scopeCredentialHeaders(const std::string& headers,
+                                   const Request& req)
+{
+  if (inCredentialScope(req)) {
+    return headers;
+  }
+  // Same line split as HttpRequest::addHeader().
+  std::vector<std::string> lines;
+  util::split(std::begin(headers), std::end(headers),
+              std::back_inserter(lines), '\n', true);
+  std::string res;
+  for (const auto& line : lines) {
+    if (!isCredentialHeader(line)) {
+      res += line;
+      res += '\n';
+    }
+  }
+  return res;
 }
 
 } // namespace aria2

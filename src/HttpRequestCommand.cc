@@ -93,7 +93,10 @@ createHttpRequest(const std::shared_ptr<Request>& req,
   httpRequest->setRequest(req);
   httpRequest->setFileEntry(fileEntry);
   httpRequest->setSegment(segment);
-  httpRequest->addHeader(option->get(PREF_HEADER));
+  // Scoped on every request: on a retry or pooled reuse of a redirected
+  // Request, req's current URI is still the redirect target.
+  httpRequest->addHeader(
+      scopeCredentialHeaders(option->get(PREF_HEADER), *req));
   httpRequest->setCookieStorage(e->getCookieStorage().get());
   httpRequest->setAuthConfigFactory(e->getAuthConfigFactory().get());
   httpRequest->setOption(option.get());
