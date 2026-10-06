@@ -83,6 +83,7 @@ public:
     CONTENT_RANGE,
     CONTENT_TYPE,
     DIGEST,
+    HTTP_HOST, // "Host"; HOST is taken by config.h
     INFOHASH, // Used for BitTorrent LPD
     LAST_MODIFIED,
     LINK,
@@ -90,11 +91,13 @@ public:
     ORIGIN,
     PORT, // Used for BitTorrent LPD
     RETRY_AFTER,
+    SEC_FETCH_SITE,
     SEC_WEBSOCKET_KEY,
     SEC_WEBSOCKET_VERSION,
     SET_COOKIE,
     TRANSFER_ENCODING,
     UPGRADE,
+    X_ARIAM_PAGE,
     MAX_INTERESTING_HEADER
   };
 

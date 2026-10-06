@@ -184,6 +184,7 @@ SRCS =  \
 	option_processing.cc\
 	OutputFile.h\
 	paramed_string.cc paramed_string.h\
+	PassphraseLimiter.cc PassphraseLimiter.h\
 	PeerStat.cc PeerStat.h\
 	Piece.cc Piece.h\
 	PiecedSegment.cc PiecedSegment.h\
@@ -235,6 +236,7 @@ SRCS =  \
 	SocketRecvBuffer.cc SocketRecvBuffer.h\
 	SpeedCalc.cc SpeedCalc.h\
 	StatCalc.h\
+	StatusPage.cc StatusPage.h\
 	StreamCheckIntegrityEntry.cc StreamCheckIntegrityEntry.h\
 	StreamFileAllocationEntry.cc StreamFileAllocationEntry.h\
 	StreamFilter.cc StreamFilter.h\

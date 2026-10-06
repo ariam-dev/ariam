@@ -654,4 +654,40 @@ bool DownloadEngine::validateToken(const std::string& token)
   return *tokenExpected_ == tokenHMAC_->getResult(token);
 }
 
+PassphraseCheck
+DownloadEngine::checkStatusPagePassphrase(const std::string& clientAddr,
+                                          const std::string& passphrase)
+{
+  using namespace util::security;
+
+  if (option_->blank(PREF_STATUS_PAGE_PASSPHRASE)) {
+    return PASSPHRASE_WRONG;
+  }
+
+  const auto& now = global::wallclock();
+  if (passphraseLimiter_.locked(clientAddr, now)) {
+    return PASSPHRASE_LOCKED;
+  }
+
+  if (!passphraseHMAC_) {
+    passphraseHMAC_ = HMAC::createRandom();
+    if (!passphraseHMAC_) {
+      A2_LOG_ERROR("Failed to create HMAC");
+      return PASSPHRASE_WRONG;
+    }
+    passphraseExpected_ = make_unique<HMACResult>(
+        passphraseHMAC_->getResult(option_->get(PREF_STATUS_PAGE_PASSPHRASE)));
+  }
+
+  if (*passphraseExpected_ == passphraseHMAC_->getResult(passphrase)) {
+    passphraseLimiter_.succeed(clientAddr);
+    return PASSPHRASE_OK;
+  }
+  passphraseLimiter_.fail(clientAddr, now);
+  A2_LOG_INFO(fmt("Wrong status page passphrase from %s. %d failure(s).",
+                  clientAddr.c_str(),
+                  passphraseLimiter_.countFailures(clientAddr, now)));
+  return PASSPHRASE_WRONG;
+}
+
 } // namespace aria2

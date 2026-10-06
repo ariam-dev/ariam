@@ -232,6 +232,7 @@ constexpr const char* INTERESTING_HEADER_NAMES[] = {
     "content-range",
     "content-type",
     "digest",
+    "host",
     "infohash",
     "last-modified",
     "link",
@@ -239,11 +240,13 @@ constexpr const char* INTERESTING_HEADER_NAMES[] = {
     "origin",
     "port",
     "retry-after",
+    "sec-fetch-site",
     "sec-websocket-key",
     "sec-websocket-version",
     "set-cookie",
     "transfer-encoding",
     "upgrade",
+    "x-ariam-page",
 };
 } // namespace
 

@@ -34,6 +34,7 @@
 /* copyright --> */
 #include "HttpServer.h"
 
+#include <algorithm>
 #include <sstream>
 
 #include "HttpHeader.h"
@@ -52,9 +53,13 @@
 #include "TimeA2.h"
 #include "array_fun.h"
 #include "JsonDiskWriter.h"
+#include "StatusPage.h"
 #ifdef ENABLE_XML_RPC
 #  include "XmlRpcDiskWriter.h"
 #endif // ENABLE_XML_RPC
+#ifdef HAVE_ZLIB
+#  include "GZipEncoder.h"
+#endif // HAVE_ZLIB
 
 namespace aria2 {
 
@@ -72,7 +77,8 @@ HttpServer::HttpServer(const std::shared_ptr<SocketCore>& socket)
       keepAlive_(true),
       gzip_(false),
       acceptsGZip_(false),
-      secure_(false)
+      secure_(false),
+      statusPage_(false)
 {
 }
 
@@ -154,6 +160,9 @@ const char* getStatusString(int status)
   // RFC 2817 defines 426 status code.
   case 426:
     return "426 Upgrade Required";
+  // RFC 6585 defines 429 status code.
+  case 429:
+    return "429 Too Many Requests";
   case 500:
     return "500 Internal Server Error";
   case 501:
@@ -172,6 +181,44 @@ const char* getStatusString(int status)
 }
 } // namespace
 
+namespace {
+// Replaces the value of every Authorization field, continuation lines
+// included, with "<redacted>".
+std::string redactAuthorization(const std::string& headers)
+{
+  std::string res;
+  res.reserve(headers.size());
+  bool redacting = false;
+  auto first = std::begin(headers);
+  auto last = std::end(headers);
+  while (first != last) {
+    auto eol = std::find(first, last, '\n');
+    auto next = eol == last ? last : eol + 1;
+    if (redacting && (*first == ' ' || *first == '\t')) {
+      first = next;
+      continue;
+    }
+    redacting = false;
+    auto colon = std::find(first, eol, ':');
+    if (colon != eol && util::strieq(first, colon, "authorization")) {
+      res.append(first, colon + 1);
+      res += " <redacted>";
+      auto valueEnd = eol;
+      if (valueEnd != colon + 1 && *(valueEnd - 1) == '\r') {
+        --valueEnd;
+      }
+      res.append(valueEnd, next);
+      redacting = true;
+    }
+    else {
+      res.append(first, next);
+    }
+    first = next;
+  }
+  return res;
+}
+} // namespace
+
 bool HttpServer::receiveRequest()
 {
   if (socketRecvBuffer_->bufferEmpty()) {
@@ -183,8 +230,9 @@ bool HttpServer::receiveRequest()
   if (headerProcessor_->parse(socketRecvBuffer_->getBuffer(),
                               socketRecvBuffer_->getBufferLength())) {
     lastRequestHeader_ = headerProcessor_->getResult();
-    A2_LOG_INFO(fmt("HTTP Server received request\n%s",
-                    headerProcessor_->getHeaderString().c_str()));
+    A2_LOG_INFO(
+        fmt("HTTP Server received request\n%s",
+            redactAuthorization(headerProcessor_->getHeaderString()).c_str()));
     socketRecvBuffer_->drain(headerProcessor_->getLastBytesProcessed());
     bodyConsumed_ = 0;
     if (setupResponseRecv() < 0) {
@@ -266,15 +314,51 @@ void HttpServer::feedResponse(std::string text, const std::string& contentType)
 void HttpServer::feedResponse(int status, const std::string& headers,
                               std::string text, const std::string& contentType)
 {
+  buildResponse(status, "no-cache", supportsGZip(), headers, std::move(text),
+                contentType);
+}
+
+namespace {
+constexpr char STATUS_PAGE_HEADERS[] =
+    "Content-Security-Policy: default-src 'none'; script-src 'self'; "
+    "style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'\r\n"
+    "X-Content-Type-Options: nosniff\r\n"
+    "Referrer-Policy: no-referrer\r\n";
+} // namespace
+
+void HttpServer::feedStatusPageResponse(int status, const std::string& headers,
+                                        std::string text,
+                                        const std::string& contentType)
+{
+  bool gzipBody = false;
+#ifdef HAVE_ZLIB
+  if (supportsGZip() && !text.empty()) {
+    GZipEncoder o;
+    o.init();
+    o << text;
+    text = o.str();
+    gzipBody = true;
+  }
+#endif // HAVE_ZLIB
+  buildResponse(status, "no-store", gzipBody, STATUS_PAGE_HEADERS + headers,
+                std::move(text), contentType);
+}
+
+void HttpServer::buildResponse(int status, const char* cacheControl,
+                               bool gzipBody, const std::string& headers,
+                               std::string text, const std::string& contentType)
+{
   std::string httpDate = Time().toHTTPDate();
   std::string header =
       fmt("HTTP/1.1 %s\r\n"
           "Date: %s\r\n"
           "Content-Length: %lu\r\n"
           "Expires: %s\r\n"
-          "Cache-Control: no-cache\r\n",
+          "Cache-Control: %s\r\n",
           getStatusString(status), httpDate.c_str(),
-          static_cast<unsigned long>(text.size()), httpDate.c_str());
+          static_cast<unsigned long>(text.size()), httpDate.c_str(),
+          cacheControl);
   if (!contentType.empty()) {
     header += "Content-Type: ";
     header += contentType;
@@ -285,7 +369,7 @@ void HttpServer::feedResponse(int status, const std::string& headers,
     header += allowOrigin_;
     header += "\r\n";
   }
-  if (supportsGZip()) {
+  if (gzipBody) {
     header += "Content-Encoding: gzip\r\n";
   }
   if (!supportsPersistentConnection()) {
@@ -372,6 +456,12 @@ int HttpServer::setupResponseRecv()
   if (getMethod() == "GET") {
     if (path == "/jsonrpc") {
       reqType_ = RPC_TYPE_JSONP;
+      lastBody_.reset();
+      return 0;
+    }
+    // path is raw: never percent-decoded.
+    if (statusPage_ && status_page::matchPagePath(path, statusPageFile_)) {
+      reqType_ = STATUS_PAGE_TYPE;
       lastBody_.reset();
       return 0;
     }

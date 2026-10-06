@@ -61,6 +61,7 @@
 #include "array_fun.h"
 #include "RpcMethodFactory.h"
 #include "RpcResponse.h"
+#include "rpc_helper.h"
 #include "SegmentMan.h"
 #include "TimedHaltCommand.h"
 #include "PeerStat.h"
@@ -996,6 +997,21 @@ void gatherStoppedDownload(Dict* entryDict,
 #endif // ENABLE_BITTORRENT
 }
 
+void redactPassphraseEntry(Dict* entryDict)
+{
+  entryDict->removeKey(KEY_ERROR_MESSAGE);
+  auto files = downcast<List>(entryDict->get(KEY_FILES));
+  if (!files) {
+    return;
+  }
+  for (auto& f : *files) {
+    auto file = downcast<Dict>(f);
+    if (file) {
+      file->removeKey(KEY_URIS);
+    }
+  }
+}
+
 std::unique_ptr<ValueBase> GetFilesRpcMethod::process(const RpcRequest& req,
                                                       DownloadEngine* e)
 {
@@ -1106,6 +1122,9 @@ std::unique_ptr<ValueBase> TellStatusRpcMethod::process(const RpcRequest& req,
     }
     gatherProgress(entryDict.get(), group, e, sites, keys);
   }
+  if (req.passphraseAuthorized) {
+    redactPassphraseEntry(entryDict.get());
+  }
   return std::move(entryDict);
 }
 
@@ -1124,6 +1143,9 @@ std::unique_ptr<ValueBase> TellActiveRpcMethod::process(const RpcRequest& req,
       entryDict->put(KEY_STATUS, VLB_ACTIVE);
     }
     gatherProgress(entryDict.get(), group, e, sites, keys);
+    if (req.passphraseAuthorized) {
+      redactPassphraseEntry(entryDict.get());
+    }
     list->append(std::move(entryDict));
   }
   return std::move(list);
@@ -1295,7 +1317,8 @@ GetGlobalOptionRpcMethod::process(const RpcRequest& req, DownloadEngine* e)
   auto result = Dict::g();
   for (size_t i = 0, len = e->getOption()->getTable().size(); i < len; ++i) {
     PrefPtr pref = option::i2p(i);
-    if (pref == PREF_RPC_SECRET || !e->getOption()->defined(pref)) {
+    if (pref == PREF_RPC_SECRET || pref == PREF_STATUS_PAGE_PASSPHRASE ||
+        !e->getOption()->defined(pref)) {
       continue;
     }
     const OptionHandler* h = getOptionParser()->find(pref);
@@ -1600,7 +1623,8 @@ RpcResponse SystemMulticallRpcMethod::execute(RpcRequest req, DownloadEngine* e)
       }
       RpcRequest r = {methodName->s(), std::move(paramsList), nullptr,
                       req.jsonRpc};
-      RpcResponse res = getMethod(methodName->s())->execute(std::move(r), e);
+      r.passphraseAuthorized = req.passphraseAuthorized;
+      RpcResponse res = dispatch(std::move(r), e);
       if (rpc::not_authorized(res)) {
         authorized = RpcResponse::NOTAUTHORIZED;
       }

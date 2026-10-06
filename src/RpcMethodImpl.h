@@ -311,6 +311,10 @@ public:
 SiteConcurrency createSiteConcurrency(DownloadEngine* e,
                                       const std::vector<std::string>& keys);
 
+// Removes files[].uris and errorMessage, which may embed a URI, from
+// entryDict, a tell* entry for a passphrase-authorized request.
+void redactPassphraseEntry(Dict* entryDict);
+
 template <typename T> class AbstractPaginationRpcMethod : public RpcMethod {
 private:
   template <typename InputIterator>
@@ -372,6 +376,9 @@ protected:
     for (; range.first != range.second; ++range.first) {
       auto entryDict = Dict::g();
       createEntry(entryDict.get(), *range.first, e, sites, keys);
+      if (req.passphraseAuthorized) {
+        redactPassphraseEntry(entryDict.get());
+      }
       list->append(std::move(entryDict));
     }
     if (offset < 0) {

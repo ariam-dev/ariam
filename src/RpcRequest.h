@@ -50,6 +50,12 @@ struct RpcRequest {
   std::unique_ptr<List> params;
   std::unique_ptr<ValueBase> id;
   bool jsonRpc;
+  // Set only by HttpServerBodyCommand, for a token-less call in a
+  // request that passes status_page::acceptsPassphraseRpc() with the
+  // right passphrase; copied into each system.multicall sub-request.
+  // dispatch() then admits only allowlisted calls, and tell* responses
+  // omit files[].uris and errorMessage.
+  bool passphraseAuthorized;
 
   RpcRequest();
 

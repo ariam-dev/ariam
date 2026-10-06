@@ -96,12 +96,22 @@ public:
 
   virtual ~RpcMethod();
 
+  // Throws DlAbortEx unless req carries a valid token, or carries no
+  // token and req.passphraseAuthorized is true. Removes the token from
+  // req.params.
   virtual void authorize(RpcRequest& req, DownloadEngine* e);
 
   // Do work to fulfill RpcRequest req and returns its result as
   // RpcResponse. This method delegates to process() method.
   virtual RpcResponse execute(RpcRequest req, DownloadEngine* e);
 };
+
+// True if the first parameter of req is a string starting with
+// "token:". Such a call is authorized by its token alone.
+bool hasToken(const RpcRequest& req);
+
+// The response RpcMethod::execute() gives an unauthorized req.
+RpcResponse createUnauthorizedResponse(RpcRequest req);
 
 } // namespace rpc
 

@@ -46,6 +46,7 @@
 namespace aria2 {
 
 class ValueBase;
+class List;
 class Dict;
 class DownloadEngine;
 
@@ -61,6 +62,26 @@ RpcRequest xmlParseMemory(const char* xml, size_t size);
 // |msg| is the error message. The |id| is the id of the request .
 RpcResponse createJsonRpcErrorResponse(int code, const std::string& msg,
                                        std::unique_ptr<ValueBase> id);
+
+// Stores JSON-RPC request |jsondict| in |req| and returns nullptr, or
+// returns the error response if |jsondict| is not a valid request.
+std::unique_ptr<RpcResponse> parseJsonRpcRequest(Dict* jsondict,
+                                                 RpcRequest& req);
+
+// The token check of RpcMethod::authorize() on the first element of
+// |params|, without removing it. False if |params| or |e| is null.
+bool hasValidToken(const List* params, DownloadEngine* e);
+
+// True if |req| is on the status page passphrase allowlist.
+bool isPassphraseAllowed(const RpcRequest& req);
+
+// Every RPC call runs through here, including each system.multicall
+// sub-request. A passphrase-authorized |req| carrying a valid token
+// takes the token path with the flag cleared. Any other
+// passphrase-authorized |req| that isPassphraseAllowed() rejects gets
+// the unauthorized response without running; an allowed one carrying
+// an invalid token is rejected by RpcMethod::authorize().
+RpcResponse dispatch(RpcRequest req, DownloadEngine* e);
 
 // Processes JSON-RPC request |jsondict| and returns the result.
 RpcResponse processJsonRpcRequest(Dict* jsondict, DownloadEngine* e);

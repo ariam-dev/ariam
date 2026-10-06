@@ -76,6 +76,9 @@ HttpServerCommand::HttpServerCommand(cuid_t cuid, DownloadEngine* e,
   if (e_->getOption()->getAsBool(PREF_RPC_ALLOW_ORIGIN_ALL)) {
     httpServer_->setAllowOrigin("*");
   }
+  if (!e_->getOption()->blank(PREF_STATUS_PAGE_PASSPHRASE)) {
+    httpServer_->enableStatusPage();
+  }
 #ifdef HAVE_ZLIB
   httpServer_->enableGZip();
 #else  // !HAVE_ZLIB

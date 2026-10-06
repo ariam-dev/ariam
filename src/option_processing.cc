@@ -61,6 +61,7 @@
 #include "array_fun.h"
 #include "LogFactory.h"
 #include "SiteConcurrencyFile.h"
+#include "StatusPage.h"
 #ifndef HAVE_DAEMON
 #  include "daemon.h"
 #endif // !HAVE_DAEMON
@@ -314,6 +315,13 @@ error_code::Value option_processing(Option& op, bool standalone,
         return e.getErrorCode();
       }
     }
+  }
+  try {
+    status_page::validateOptions(op);
+  }
+  catch (Exception& e) {
+    global::cerr()->printf("%s", e.stackTrace().c_str());
+    return e.getErrorCode();
   }
   if (standalone && op.getAsBool(PREF_STDERR)) {
     global::redirectStdoutToStderr();

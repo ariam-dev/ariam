@@ -38,12 +38,13 @@ namespace aria2 {
 
 namespace rpc {
 
-RpcRequest::RpcRequest() : jsonRpc{false} {}
+RpcRequest::RpcRequest() : jsonRpc{false}, passphraseAuthorized{false} {}
 
 RpcRequest::RpcRequest(std::string methodName, std::unique_ptr<List> params)
     : methodName{std::move(methodName)},
       params{std::move(params)},
-      jsonRpc{false}
+      jsonRpc{false},
+      passphraseAuthorized{false}
 {
 }
 
@@ -52,7 +53,8 @@ RpcRequest::RpcRequest(std::string methodName, std::unique_ptr<List> params,
     : methodName{std::move(methodName)},
       params{std::move(params)},
       id{std::move(id)},
-      jsonRpc{jsonRpc}
+      jsonRpc{jsonRpc},
+      passphraseAuthorized{false}
 {
 }
 

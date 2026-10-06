@@ -60,7 +60,14 @@ class HMACResult;
 } // namespace security
 } // namespace util
 
-enum RequestType { RPC_TYPE_NONE, RPC_TYPE_XML, RPC_TYPE_JSON, RPC_TYPE_JSONP };
+enum RequestType {
+  RPC_TYPE_NONE,
+  RPC_TYPE_XML,
+  RPC_TYPE_JSON,
+  RPC_TYPE_JSONP,
+  // GET of a status page file (status_page::matchPagePath()).
+  STATUS_PAGE_TYPE
+};
 
 // HTTP server class handling RPC request from the client.  It is not
 // intended to be a generic HTTP server.
@@ -86,6 +93,13 @@ private:
   bool acceptsGZip_;
   std::string allowOrigin_;
   bool secure_;
+  bool statusPage_;
+  std::string statusPageFile_;
+
+  // |text| is sent as given: |gzipBody| only adds Content-Encoding: gzip.
+  void buildResponse(int status, const char* cacheControl, bool gzipBody,
+                     const std::string& headers, std::string text,
+                     const std::string& contentType);
 
 public:
   HttpServer(const std::shared_ptr<SocketCore>& socket);
@@ -118,6 +132,14 @@ public:
   // body. The |contentType" is the content-type of the response body.
   void feedResponse(int status, const std::string& headers = "",
                     std::string text = "", const std::string& contentType = "");
+
+  // Same as feedResponse() but adds the status page security header
+  // fields, sends Cache-Control: no-store, and gzip-compresses a
+  // non-empty |text| if supportsGZip(); Content-Encoding: gzip is sent
+  // only when the body is compressed.
+  void feedStatusPageResponse(int status, const std::string& headers = "",
+                              std::string text = "",
+                              const std::string& contentType = "");
 
   // Feeds "101 Switching Protocols" response. The |protocol| will
   // appear in Upgrade header field. The |headers| is zero or more
@@ -170,6 +192,14 @@ public:
   void setSecure(bool f) { secure_ = f; }
 
   bool getSecure() const { return secure_; }
+
+  void enableStatusPage() { statusPage_ = true; }
+
+  bool getStatusPage() const { return statusPage_; }
+
+  // The file of the last STATUS_PAGE_TYPE request, e.g. "index.html" for
+  // "GET /".
+  const std::string& getStatusPageFile() const { return statusPageFile_; }
 
   bool wantRead() const;
   bool wantWrite() const;

@@ -319,6 +319,10 @@ extern PrefPtr PREF_SAVE_SESSION_INTERVAL;
 extern PrefPtr PREF_ENABLE_COLOR;
 // value: string
 extern PrefPtr PREF_RPC_SECRET;
+// value: string
+extern PrefPtr PREF_STATUS_PAGE_PASSPHRASE;
+// value: string that your file system recognizes as a directory.
+extern PrefPtr PREF_STATUS_PAGE_DIR;
 // values: 1*digit
 extern PrefPtr PREF_DSCP;
 // values: true | false

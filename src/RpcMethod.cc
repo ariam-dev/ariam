@@ -54,6 +54,19 @@ namespace aria2 {
 
 namespace rpc {
 
+namespace {
+const char MSG_UNAUTHORIZED[] = "Unauthorized";
+
+std::unique_ptr<ValueBase> createErrorParams(std::string message,
+                                             bool jsonRpc)
+{
+  auto params = Dict::g();
+  params->put((jsonRpc ? "code" : "faultCode"), Integer::g(1));
+  params->put((jsonRpc ? "message" : "faultString"), std::move(message));
+  return std::move(params);
+}
+} // namespace
+
 RpcMethod::RpcMethod() : optionParser_(OptionParser::getInstance()) {}
 
 RpcMethod::~RpcMethod() = default;
@@ -61,30 +74,42 @@ RpcMethod::~RpcMethod() = default;
 std::unique_ptr<ValueBase> RpcMethod::createErrorResponse(const Exception& e,
                                                           const RpcRequest& req)
 {
-  auto params = Dict::g();
-  params->put((req.jsonRpc ? "code" : "faultCode"), Integer::g(1));
-  params->put((req.jsonRpc ? "message" : "faultString"), std::string(e.what()));
-  return std::move(params);
+  return createErrorParams(e.what(), req.jsonRpc);
+}
+
+bool hasToken(const RpcRequest& req)
+{
+  if (!req.params || req.params->empty()) {
+    return false;
+  }
+  auto t = downcast<String>(req.params->get(0));
+  return t && util::startsWith(t->s(), "token:");
+}
+
+RpcResponse createUnauthorizedResponse(RpcRequest req)
+{
+  return RpcResponse(1, RpcResponse::NOTAUTHORIZED,
+                     createErrorParams(MSG_UNAUTHORIZED, req.jsonRpc),
+                     std::move(req.id));
 }
 
 void RpcMethod::authorize(RpcRequest& req, DownloadEngine* e)
 {
+  if (req.passphraseAuthorized && !hasToken(req)) {
+    // dispatch() admitted this call on the status page passphrase.
+    return;
+  }
   std::string token;
   // We always treat first parameter as token if it is string and
   // starts with "token:" and remove it from parameter list, so that
   // we don't have to add conditionals to all RPCMethod
   // implementations.
-  if (req.params && !req.params->empty()) {
-    auto t = downcast<String>(req.params->get(0));
-    if (t) {
-      if (util::startsWith(t->s(), "token:")) {
-        token = t->s().substr(6);
-        req.params->pop_front();
-      }
-    }
+  if (hasToken(req)) {
+    token = downcast<String>(req.params->get(0))->s().substr(6);
+    req.params->pop_front();
   }
   if (!e || !e->validateToken(token)) {
-    throw DL_ABORT_EX("Unauthorized");
+    throw DL_ABORT_EX(MSG_UNAUTHORIZED);
   }
 }
 

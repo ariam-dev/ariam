@@ -50,6 +50,7 @@
 #include "FileAllocationMan.h"
 #include "CheckIntegrityMan.h"
 #include "DNSCache.h"
+#include "PassphraseLimiter.h"
 #ifdef ENABLE_ASYNC_DNS
 #  include "AsyncNameResolver.h"
 #endif // ENABLE_ASYNC_DNS
@@ -174,6 +175,10 @@ private:
 
   std::unique_ptr<util::security::HMAC> tokenHMAC_;
   std::unique_ptr<util::security::HMACResult> tokenExpected_;
+
+  std::unique_ptr<util::security::HMAC> passphraseHMAC_;
+  std::unique_ptr<util::security::HMACResult> passphraseExpected_;
+  PassphraseLimiter passphraseLimiter_;
 
 public:
   DownloadEngine(std::unique_ptr<EventPoll> eventPoll);
@@ -342,6 +347,19 @@ public:
 #endif // ENABLE_WEBSOCKET
 
   bool validateToken(const std::string& token);
+
+  // Shared by every route that accepts the passphrase. While clientAddr
+  // is locked out, returns PASSPHRASE_LOCKED without checking. Otherwise
+  // compares in constant time: a match forgets the failures of
+  // clientAddr, a mismatch counts one. Returns PASSPHRASE_WRONG without
+  // counting if PREF_STATUS_PAGE_PASSPHRASE is not set.
+  PassphraseCheck checkStatusPagePassphrase(const std::string& clientAddr,
+                                            const std::string& passphrase);
+
+  const PassphraseLimiter& getPassphraseLimiter() const
+  {
+    return passphraseLimiter_;
+  }
 };
 
 } // namespace aria2

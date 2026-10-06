@@ -25,6 +25,7 @@
 #include "RpcMethodFactory.h"
 #include "FillRequestGroupCommand.h"
 #include "SiteConcurrency.h"
+#include "rpc_helper.h"
 #ifdef ENABLE_BITTORRENT
 #  include "BtRegistry.h"
 #  include "BtRuntime.h"
@@ -96,6 +97,13 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testSystemMulticall_fail);
   CPPUNIT_TEST(testSystemListMethods);
   CPPUNIT_TEST(testSystemListNotifications);
+  CPPUNIT_TEST(testPassphrase_allowlist);
+  CPPUNIT_TEST(testPassphrase_deniedMethods);
+  CPPUNIT_TEST(testPassphrase_tokenCall);
+  CPPUNIT_TEST(testPassphrase_changeGlobalOption);
+  CPPUNIT_TEST(testPassphrase_systemMethods);
+  CPPUNIT_TEST(testPassphrase_multicall);
+  CPPUNIT_TEST(testPassphrase_redaction);
   CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -174,6 +182,13 @@ public:
   void testSystemMulticall_fail();
   void testSystemListMethods();
   void testSystemListNotifications();
+  void testPassphrase_allowlist();
+  void testPassphrase_deniedMethods();
+  void testPassphrase_tokenCall();
+  void testPassphrase_changeGlobalOption();
+  void testPassphrase_systemMethods();
+  void testPassphrase_multicall();
+  void testPassphrase_redaction();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(RpcMethodTest);
@@ -1987,6 +2002,559 @@ void RpcMethodTest::testSystemListNotifications()
     const auto s = downcast<String>(resParams->get(i));
     CPPUNIT_ASSERT(s);
     CPPUNIT_ASSERT_EQUAL(allNames[i], s->s());
+  }
+}
+
+namespace {
+const char SECRET[] = "secret";
+
+// The methods the status page passphrase may call, besides
+// aria2.changeGlobalOption with the site keys.
+const std::vector<std::string> PASSPHRASE_METHODS = {
+    "aria2.tellActive",     "aria2.tellWaiting",
+    "aria2.tellStopped",    "aria2.tellStatus",
+    "aria2.getGlobalStat",  "aria2.pause",
+    "aria2.unpause",        "aria2.remove",
+    "aria2.purgeDownloadResult", "ariam.getSiteSummary",
+    "system.multicall"};
+
+// Runs methodName through dispatch() as a passphrase-authorized call.
+RpcResponse passphraseCall(DownloadEngine* e, const std::string& methodName,
+                           std::unique_ptr<List> params = List::g())
+{
+  RpcRequest req(methodName, std::move(params), Integer::g(1), true);
+  req.passphraseAuthorized = true;
+  return dispatch(std::move(req), e);
+}
+
+std::unique_ptr<List> withToken(std::unique_ptr<List> params,
+                                const std::string& token = SECRET)
+{
+  auto res = List::g();
+  res->append("token:" + token);
+  for (auto& v : *params) {
+    res->append(std::move(v));
+  }
+  return res;
+}
+
+std::unique_ptr<List> paramsOf(std::unique_ptr<ValueBase> v)
+{
+  auto params = List::g();
+  params->append(std::move(v));
+  return params;
+}
+
+std::unique_ptr<List> gidParams(const std::string& gid)
+{
+  return paramsOf(String::g(gid));
+}
+
+std::unique_ptr<List> rangeParams()
+{
+  auto params = List::g();
+  params->append(Integer::g(0));
+  params->append(Integer::g(10));
+  return params;
+}
+
+std::unique_ptr<List>
+optionParams(const std::vector<std::pair<std::string, std::string>>& options)
+{
+  auto dict = Dict::g();
+  for (const auto& kv : options) {
+    dict->put(kv.first, kv.second);
+  }
+  return paramsOf(std::move(dict));
+}
+
+// A system.multicall method spec.
+std::unique_ptr<Dict> createCall(const std::string& methodName,
+                                 std::unique_ptr<List> params = List::g())
+{
+  auto call = Dict::g();
+  call->put("methodName", methodName);
+  call->put("params", std::move(params));
+  return call;
+}
+
+void assertRuns(const RpcResponse& res, const std::string& what)
+{
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, 0, res.code);
+  CPPUNIT_ASSERT_MESSAGE(what, !not_authorized(res));
+}
+
+void assertUnauthorizedFault(const ValueBase* fault, const std::string& what)
+{
+  auto error = downcast<Dict>(fault);
+  CPPUNIT_ASSERT_MESSAGE(what, error);
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, std::string("Unauthorized"),
+                               getStringValue(error, "message"));
+  auto code = downcast<Integer>(error->get("code"));
+  CPPUNIT_ASSERT_MESSAGE(what, code);
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, (Integer::ValueType)1, code->i());
+}
+
+void assertUnauthorized(const RpcResponse& res, const std::string& what)
+{
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, 1, res.code);
+  CPPUNIT_ASSERT_MESSAGE(what, not_authorized(res));
+  assertUnauthorizedFault(res.param.get(), what);
+}
+} // namespace
+
+void RpcMethodTest::testPassphrase_allowlist()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  auto active = createRequestGroup(0, 0, "pp_active", "http://host/active",
+                                   util::copy(option_));
+  auto waiting = createRequestGroup(0, 0, "pp_waiting", "http://host/waiting",
+                                    util::copy(option_));
+  rgman->addReservedGroup(active);
+  rgman->addReservedGroup(waiting);
+  rgman->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_ACTIVE, active->getState());
+  auto stopped = createDownloadResult(error_code::FINISHED, "http://host/done");
+  rgman->addDownloadResult(stopped);
+  auto waitingGid = GroupId::toHex(waiting->getGID());
+
+  assertRuns(passphraseCall(e_.get(), "aria2.tellActive"), "tellActive");
+  assertRuns(passphraseCall(e_.get(), "aria2.tellWaiting", rangeParams()),
+             "tellWaiting");
+  assertRuns(passphraseCall(e_.get(), "aria2.tellStopped", rangeParams()),
+             "tellStopped");
+  assertRuns(passphraseCall(e_.get(), "aria2.tellStatus", gidParams(waitingGid)),
+             "tellStatus");
+  assertRuns(passphraseCall(e_.get(), "aria2.tellStatus",
+                            gidParams(stopped->gid->toHex())),
+             "tellStatus stopped");
+  assertRuns(passphraseCall(e_.get(), "aria2.getGlobalStat"), "getGlobalStat");
+  assertRuns(passphraseCall(e_.get(), "ariam.getSiteSummary"),
+             "getSiteSummary");
+  assertRuns(passphraseCall(e_.get(), "aria2.pause", gidParams(waitingGid)),
+             "pause");
+  CPPUNIT_ASSERT(waiting->isPauseRequested());
+  assertRuns(passphraseCall(e_.get(), "aria2.unpause", gidParams(waitingGid)),
+             "unpause");
+  CPPUNIT_ASSERT(!waiting->isPauseRequested());
+  assertRuns(passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                            optionParams({{PREF_SITE_CONCURRENT->k, "a.test:1"}})),
+             "changeGlobalOption");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:1"),
+                       option_->get(PREF_SITE_CONCURRENT));
+  {
+    auto calls = List::g();
+    calls->append(createCall("aria2.getGlobalStat"));
+    auto res = passphraseCall(e_.get(), "system.multicall",
+                              paramsOf(std::move(calls)));
+    assertRuns(res, "multicall");
+    auto list = downcast<List>(res.param);
+    CPPUNIT_ASSERT_EQUAL((size_t)1, list->size());
+    CPPUNIT_ASSERT(downcast<List>(list->get(0)));
+  }
+  assertRuns(passphraseCall(e_.get(), "aria2.purgeDownloadResult"),
+             "purgeDownloadResult");
+  CPPUNIT_ASSERT_EQUAL((size_t)0, rgman->getDownloadResults().size());
+  assertRuns(passphraseCall(e_.get(), "aria2.remove", gidParams(waitingGid)),
+             "remove");
+  CPPUNIT_ASSERT(!rgman->findGroup(waiting->getGID()));
+}
+
+void RpcMethodTest::testPassphrase_deniedMethods()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  auto names = allMethodNames();
+  names.push_back("aria2.noSuchMethod");
+  names.push_back("");
+  size_t denied = 0;
+  for (const auto& name : names) {
+    if (name == ChangeGlobalOptionRpcMethod::getMethodName() ||
+        std::find(std::begin(PASSPHRASE_METHODS), std::end(PASSPHRASE_METHODS),
+                  name) != std::end(PASSPHRASE_METHODS)) {
+      continue;
+    }
+    // Run, each would answer with a result or a parameter error instead.
+    assertUnauthorized(passphraseCall(e_.get(), name), name);
+    ++denied;
+  }
+  CPPUNIT_ASSERT(denied >= 20);
+
+  // Denied before it runs: nothing is added, changed, or removed.
+  auto group = createRequestGroup(0, 0, "pp_denied", "http://host/denied",
+                                  util::copy(option_));
+  rgman->addReservedGroup(group);
+  auto gid = GroupId::toHex(group->getGID());
+  {
+    auto uris = List::g();
+    uris->append("http://host/added");
+    assertUnauthorized(
+        passphraseCall(e_.get(), "aria2.addUri", paramsOf(std::move(uris))),
+        "addUri");
+    CPPUNIT_ASSERT_EQUAL((size_t)1, rgman->getReservedGroups().size());
+  }
+  {
+    auto params = gidParams(gid);
+    auto options = Dict::g();
+    options->put(PREF_MAX_DOWNLOAD_LIMIT->k, "1K");
+    params->append(std::move(options));
+    assertUnauthorized(
+        passphraseCall(e_.get(), "aria2.changeOption", std::move(params)),
+        "changeOption");
+    CPPUNIT_ASSERT(!group->getOption()->defined(PREF_MAX_DOWNLOAD_LIMIT));
+  }
+  for (const auto& name : {"aria2.forceRemove", "aria2.getOption",
+                           "aria2.getUris", "aria2.getFiles"}) {
+    assertUnauthorized(passphraseCall(e_.get(), name, gidParams(gid)), name);
+  }
+  CPPUNIT_ASSERT(rgman->findGroup(group->getGID()));
+}
+
+void RpcMethodTest::testPassphrase_tokenCall()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  {
+    // A call that carries a token is authorized by its token alone,
+    // on the passphrase path too.
+    auto uris = List::g();
+    uris->append("http://host/token");
+    assertRuns(passphraseCall(e_.get(), "aria2.addUri",
+                              withToken(paramsOf(std::move(uris)))),
+               "addUri with token");
+    CPPUNIT_ASSERT_EQUAL((size_t)1, rgman->getReservedGroups().size());
+  }
+  // A wrong token is not saved by the passphrase: an allowed call is
+  // unauthorized, and a denied one stays denied.
+  assertUnauthorized(passphraseCall(e_.get(), "aria2.tellActive",
+                                    withToken(List::g(), "wrong")),
+                     "tellActive with a wrong token");
+  assertUnauthorized(passphraseCall(e_.get(), "aria2.getGlobalStat",
+                                    withToken(List::g(), "wrong")),
+                     "getGlobalStat with a wrong token");
+  const auto sites = option_->get(PREF_SITE_CONCURRENT);
+  assertUnauthorized(
+      passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                     withToken(optionParams({{PREF_SITE_CONCURRENT->k,
+                                              "wrong.test:1"}}),
+                               "wrong")),
+      "changeGlobalOption with a wrong token");
+  CPPUNIT_ASSERT_EQUAL(sites, option_->get(PREF_SITE_CONCURRENT));
+  {
+    auto uris = List::g();
+    uris->append("http://host/wrong");
+    assertUnauthorized(passphraseCall(e_.get(), "aria2.addUri",
+                                      withToken(paramsOf(std::move(uris)),
+                                                "wrong")),
+                       "addUri with a wrong token");
+    CPPUNIT_ASSERT_EQUAL((size_t)1, rgman->getReservedGroups().size());
+  }
+  // "token:" alone is a token too: an empty, wrong one.
+  assertUnauthorized(passphraseCall(e_.get(), "aria2.tellActive",
+                                    withToken(List::g(), "")),
+                     "tellActive with an empty token");
+  // Without the passphrase, a call without a token is unauthorized.
+  assertUnauthorized(dispatch(RpcRequest("aria2.tellActive", List::g(),
+                                         Integer::g(1), true),
+                              e_.get()),
+                     "tellActive without token");
+}
+
+void RpcMethodTest::testPassphrase_changeGlobalOption()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  const auto siteKey = std::string(PREF_SITE_CONCURRENT->k);
+  const auto defaultKey = std::string(PREF_SITE_CONCURRENT_DEFAULT->k);
+  assertRuns(passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                            optionParams({{siteKey, "a.test:2"},
+                                          {defaultKey, "3"}})),
+             "site keys");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:2"),
+                       option_->get(PREF_SITE_CONCURRENT));
+  CPPUNIT_ASSERT_EQUAL(std::string("3"),
+                       option_->get(PREF_SITE_CONCURRENT_DEFAULT));
+
+  // Any other key rejects the whole call.
+  assertUnauthorized(
+      passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                     optionParams({{siteKey, "b.test:1"},
+                                   {PREF_MAX_CONCURRENT_DOWNLOADS->k, "9"}})),
+      "with max-concurrent-downloads");
+  for (const auto& key :
+       {PREF_SITE_CONCURRENT_FILE->k, PREF_MAX_OVERALL_DOWNLOAD_LIMIT->k,
+        PREF_DIR->k, PREF_RPC_SECRET->k, PREF_STATUS_PAGE_PASSPHRASE->k,
+        "no-such-option"}) {
+    assertUnauthorized(passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                                      optionParams({{defaultKey, "4"},
+                                                    {key, "x"}})),
+                       key);
+  }
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:2"),
+                       option_->get(PREF_SITE_CONCURRENT));
+  CPPUNIT_ASSERT_EQUAL(std::string("3"),
+                       option_->get(PREF_SITE_CONCURRENT_DEFAULT));
+  CPPUNIT_ASSERT_EQUAL(1, rgman->getMaxConcurrentDownloads());
+  CPPUNIT_ASSERT(!option_->defined(PREF_SITE_CONCURRENT_FILE));
+  CPPUNIT_ASSERT_EQUAL(std::string(SECRET), option_->get(PREF_RPC_SECRET));
+
+  // Without an options struct.
+  assertUnauthorized(passphraseCall(e_.get(), "aria2.changeGlobalOption"),
+                     "no params");
+  assertUnauthorized(passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                                    paramsOf(String::g(siteKey + "=c.test:1"))),
+                     "string param");
+  // An empty struct changes nothing.
+  assertRuns(passphraseCall(e_.get(), "aria2.changeGlobalOption",
+                            optionParams({})),
+             "empty struct");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test:2"),
+                       option_->get(PREF_SITE_CONCURRENT));
+
+  // The token path is unchanged.
+  assertRuns(passphraseCall(
+                 e_.get(), "aria2.changeGlobalOption",
+                 withToken(optionParams(
+                     {{PREF_MAX_CONCURRENT_DOWNLOADS->k, "9"}}))),
+             "token");
+  CPPUNIT_ASSERT_EQUAL(9, rgman->getMaxConcurrentDownloads());
+}
+
+void RpcMethodTest::testPassphrase_systemMethods()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  const std::vector<std::string> names = {"system.listMethods",
+                                          "system.listNotifications"};
+  for (const auto& name : names) {
+    // Both override execute() and never call authorize().
+    assertUnauthorized(passphraseCall(e_.get(), name), name);
+    // A wrong token does not take them off the passphrase path.
+    for (const auto& token : {"wrong", ""}) {
+      assertUnauthorized(
+          passphraseCall(e_.get(), name, withToken(List::g(), token)),
+          name + " with token " + token);
+    }
+    // A valid token takes the token path.
+    {
+      auto res = passphraseCall(e_.get(), name, withToken(List::g()));
+      assertRuns(res, name + " with token");
+      CPPUNIT_ASSERT(downcast<List>(res.param));
+    }
+    // Stock: they need no token.
+    auto res =
+        dispatch(RpcRequest(name, List::g(), Integer::g(1), true), e_.get());
+    assertRuns(res, name);
+    CPPUNIT_ASSERT(downcast<List>(res.param));
+  }
+  auto calls = List::g();
+  for (const auto& name : names) {
+    calls->append(createCall(name));
+    calls->append(createCall(name, withToken(List::g(), "wrong")));
+  }
+  for (const auto& name : names) {
+    calls->append(createCall(name, withToken(List::g())));
+  }
+  auto res =
+      passphraseCall(e_.get(), "system.multicall", paramsOf(std::move(calls)));
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT(not_authorized(res));
+  auto list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL(names.size() * 3, list->size());
+  for (size_t i = 0; i < names.size() * 2; ++i) {
+    assertUnauthorizedFault(list->get(i), "multicall " + util::uitos(i));
+  }
+  for (size_t i = names.size() * 2; i < list->size(); ++i) {
+    auto result = downcast<List>(list->get(i));
+    CPPUNIT_ASSERT_MESSAGE(util::uitos(i), result);
+    CPPUNIT_ASSERT_MESSAGE(util::uitos(i), downcast<List>(result->get(0)));
+  }
+}
+
+void RpcMethodTest::testPassphrase_multicall()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  auto calls = List::g();
+  calls->append(createCall("aria2.getGlobalStat"));
+  {
+    auto uris = List::g();
+    uris->append("http://host/added");
+    calls->append(createCall("aria2.addUri", paramsOf(std::move(uris))));
+  }
+  calls->append(createCall(
+      "aria2.changeGlobalOption",
+      optionParams({{PREF_MAX_CONCURRENT_DOWNLOADS->k, "5"}})));
+  calls->append(createCall(
+      "aria2.changeGlobalOption",
+      optionParams({{PREF_SITE_CONCURRENT_DEFAULT->k, "4"}})));
+  calls->append(createCall("aria2.getGlobalOption", withToken(List::g())));
+  calls->append(
+      createCall("aria2.tellActive", withToken(List::g(), "wrong")));
+  calls->append(createCall("aria2.getVersion"));
+  auto res =
+      passphraseCall(e_.get(), "system.multicall", paramsOf(std::move(calls)));
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  // Denied sub-calls make the response unauthorized, so it is delayed
+  // like any unauthorized response.
+  CPPUNIT_ASSERT(not_authorized(res));
+  auto list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)7, list->size());
+  for (size_t i : {0, 3, 4}) {
+    CPPUNIT_ASSERT_MESSAGE(util::uitos(i), downcast<List>(list->get(i)));
+  }
+  for (size_t i : {1, 2, 5, 6}) {
+    assertUnauthorizedFault(list->get(i), util::uitos(i));
+  }
+  CPPUNIT_ASSERT_EQUAL((size_t)0, rgman->getReservedGroups().size());
+  CPPUNIT_ASSERT_EQUAL(1, rgman->getMaxConcurrentDownloads());
+  CPPUNIT_ASSERT_EQUAL(std::string("4"),
+                       option_->get(PREF_SITE_CONCURRENT_DEFAULT));
+  // The sub-call with a valid token ran on the token path.
+  auto globalOptions = downcast<Dict>(downcast<List>(list->get(4))->get(0));
+  CPPUNIT_ASSERT(globalOptions);
+  CPPUNIT_ASSERT(globalOptions->containsKey(PREF_DIR->k));
+
+  // Without the passphrase flag, each sub-call takes the token path.
+  calls = List::g();
+  calls->append(createCall("aria2.getGlobalStat"));
+  calls->append(createCall("system.listMethods"));
+  res = dispatch(RpcRequest("system.multicall", paramsOf(std::move(calls)),
+                            Integer::g(1), true),
+                 e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, list->size());
+  assertUnauthorizedFault(list->get(0), "getGlobalStat without token");
+  CPPUNIT_ASSERT(downcast<List>(list->get(1)));
+}
+
+namespace {
+// entry is a tell* entry of a download with one file: files[].uris is
+// present unless redacted, errorMessage only if stopped and not
+// redacted.
+void checkRedaction(const Dict* entry, bool redacted, bool stopped,
+                    const std::string& what)
+{
+  CPPUNIT_ASSERT_MESSAGE(what, entry);
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, !redacted && stopped,
+                               entry->containsKey("errorMessage"));
+  CPPUNIT_ASSERT_MESSAGE(what, entry->containsKey("gid"));
+  auto files = downcast<List>(entry->get("files"));
+  CPPUNIT_ASSERT_MESSAGE(what, files);
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, (size_t)1, files->size());
+  auto file = downcast<Dict>(files->get(0));
+  CPPUNIT_ASSERT_MESSAGE(what, file);
+  CPPUNIT_ASSERT_MESSAGE(what, file->containsKey("path"));
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, !redacted, file->containsKey("uris"));
+  if (!redacted) {
+    CPPUNIT_ASSERT_MESSAGE(what, downcast<List>(file->get("uris")));
+  }
+}
+
+const Dict* onlyEntry(const RpcResponse& res, const std::string& what)
+{
+  auto list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_MESSAGE(what, list);
+  CPPUNIT_ASSERT_EQUAL_MESSAGE(what, (size_t)1, list->size());
+  return downcast<Dict>(list->get(0));
+}
+} // namespace
+
+void RpcMethodTest::testPassphrase_redaction()
+{
+  option_->put(PREF_RPC_SECRET, SECRET);
+  auto& rgman = e_->getRequestGroupMan();
+  auto active = createRequestGroup(0, 0, "pp_active",
+                                   "http://host/active?sig=1",
+                                   util::copy(option_));
+  auto waiting = createRequestGroup(0, 0, "pp_waiting",
+                                    "http://host/waiting?sig=2",
+                                    util::copy(option_));
+  rgman->addReservedGroup(active);
+  rgman->addReservedGroup(waiting);
+  rgman->fillRequestGroupFromReserver(e_.get());
+  CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_ACTIVE, active->getState());
+  auto stopped = createDownloadResult(error_code::UNKNOWN_ERROR,
+                                      "http://host/stopped?sig=3");
+  stopped->resultMessage = "Redirect to https://cdn.test/stopped?sig=3 failed";
+  rgman->addDownloadResult(stopped);
+  const std::vector<std::string> keys = {"gid", "files", "errorMessage"};
+
+  for (bool redacted : {true, false}) {
+    // A token takes the token path: its responses are not redacted.
+    auto run = [&](const std::string& name, std::unique_ptr<List> params,
+                   const std::string& what) {
+      auto res = passphraseCall(e_.get(), name,
+                                redacted ? std::move(params)
+                                         : withToken(std::move(params)));
+      assertRuns(res, what);
+      return res;
+    };
+    for (bool filtered : {false, true}) {
+      auto what = std::string(redacted ? "passphrase " : "token ") +
+                  (filtered ? "keys " : "");
+      auto withKeys = [&](std::unique_ptr<List> params) {
+        if (filtered) {
+          params->append(createKeys(keys));
+        }
+        return params;
+      };
+      checkRedaction(onlyEntry(run("aria2.tellActive", withKeys(List::g()),
+                                   what + "tellActive"),
+                               what),
+                     redacted, false, what + "tellActive");
+      checkRedaction(onlyEntry(run("aria2.tellWaiting", withKeys(rangeParams()),
+                                   what + "tellWaiting"),
+                               what),
+                     redacted, false, what + "tellWaiting");
+      checkRedaction(onlyEntry(run("aria2.tellStopped", withKeys(rangeParams()),
+                                   what + "tellStopped"),
+                               what),
+                     redacted, true, what + "tellStopped");
+      for (const auto& g :
+           {std::make_pair(GroupId::toHex(active->getGID()), false),
+            std::make_pair(GroupId::toHex(waiting->getGID()), false),
+            std::make_pair(stopped->gid->toHex(), true)}) {
+        auto res = run("aria2.tellStatus", withKeys(gidParams(g.first)),
+                       what + "tellStatus " + g.first);
+        checkRedaction(downcast<Dict>(res.param), redacted, g.second,
+                       what + "tellStatus " + g.first);
+      }
+    }
+    {
+      auto params = gidParams(stopped->gid->toHex());
+      params->append(createKeys({"errorMessage"}));
+      auto res = run("aria2.tellStatus", std::move(params), "errorMessage only");
+      auto entry = downcast<Dict>(res.param);
+      if (redacted) {
+        CPPUNIT_ASSERT_EQUAL((size_t)0, entry->size());
+      }
+      else {
+        CPPUNIT_ASSERT_EQUAL(stopped->resultMessage,
+                             getStringValue(entry, "errorMessage"));
+      }
+    }
+  }
+
+  // In system.multicall each sub-call is redacted on its own: the
+  // token of one does not un-redact the other.
+  auto calls = List::g();
+  calls->append(createCall("aria2.tellStopped", rangeParams()));
+  calls->append(createCall("aria2.tellStopped", withToken(rangeParams())));
+  auto res =
+      passphraseCall(e_.get(), "system.multicall", paramsOf(std::move(calls)));
+  assertRuns(res, "multicall");
+  auto list = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, list->size());
+  for (size_t i = 0; i < 2; ++i) {
+    auto result = downcast<List>(list->get(i));
+    CPPUNIT_ASSERT(result);
+    auto entries = downcast<List>(result->get(0));
+    CPPUNIT_ASSERT(entries);
+    CPPUNIT_ASSERT_EQUAL((size_t)1, entries->size());
+    checkRedaction(downcast<Dict>(entries->get(0)), i == 0, true,
+                   "multicall " + util::uitos(i));
   }
 }
 

@@ -823,6 +823,21 @@ std::vector<OptionHandler*> OptionHandlerFactory::createOptionHandlers()
     handlers.push_back(op);
   }
   {
+    auto op = new DefaultOptionHandler(PREF_STATUS_PAGE_PASSPHRASE,
+                                       TEXT_STATUS_PAGE_PASSPHRASE);
+    op->addTag(TAG_RPC);
+    op->setEraseAfterParse(true);
+    op->setAllowEmpty(false);
+    handlers.push_back(op);
+  }
+  {
+    OptionHandler* op(new LocalFilePathOptionHandler(
+        PREF_STATUS_PAGE_DIR, TEXT_STATUS_PAGE_DIR, "/usr/share/ariam/www",
+        /* acceptStdin = */ false, 0, /* mustExist = */ false, PATH_TO_DIR));
+    op->addTag(TAG_RPC);
+    handlers.push_back(op);
+  }
+  {
     OptionHandler* op(new BooleanOptionHandler(
         PREF_RPC_SECURE, TEXT_RPC_SECURE, A2_V_FALSE, OptionHandler::OPT_ARG));
     op->addTag(TAG_RPC);

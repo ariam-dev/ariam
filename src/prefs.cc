@@ -365,6 +365,10 @@ PrefPtr PREF_SAVE_SESSION_INTERVAL = makePref("save-session-interval");
 PrefPtr PREF_ENABLE_COLOR = makePref("enable-color");
 // value: string
 PrefPtr PREF_RPC_SECRET = makePref("rpc-secret");
+// value: string
+PrefPtr PREF_STATUS_PAGE_PASSPHRASE = makePref("status-page-passphrase");
+// value: string that your file system recognizes as a directory.
+PrefPtr PREF_STATUS_PAGE_DIR = makePref("status-page-dir");
 // values: 1*digit
 PrefPtr PREF_DSCP = makePref("dscp");
 // values: true | false

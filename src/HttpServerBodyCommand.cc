@@ -55,11 +55,13 @@
 #include "message.h"
 #include "RpcMethod.h"
 #include "RpcMethodFactory.h"
+#include "RpcMethodImpl.h"
 #include "RpcRequest.h"
 #include "RpcResponse.h"
 #include "rpc_helper.h"
 #include "JsonDiskWriter.h"
 #include "ValueBaseJsonParser.h"
+#include "StatusPage.h"
 #ifdef ENABLE_XML_RPC
 #  include "XmlRpcRequestParserStateMachine.h"
 #  include "XmlRpcDiskWriter.h"
@@ -97,6 +99,118 @@ namespace {
 std::string getJsonRpcContentType(bool script)
 {
   return script ? "text/javascript" : "application/json-rpc";
+}
+} // namespace
+
+namespace {
+// How the tokens of req, a call on the status page path, authorize it.
+// The calls of a system.multicall are its method specs; of any other
+// call, the call itself.
+struct TokenCalls {
+  bool anyValid;
+  // req carries no token, and is not a system.multicall whose method
+  // specs, one or more, all carry a valid token.
+  bool needsPassphrase;
+};
+
+TokenCalls getTokenCalls(const rpc::RpcRequest& req, DownloadEngine* e)
+{
+  if (rpc::hasToken(req)) {
+    return {rpc::hasValidToken(req.params.get(), e), false};
+  }
+  const List* specs = nullptr;
+  if (req.methodName == rpc::SystemMulticallRpcMethod::getMethodName() &&
+      req.params && !req.params->empty()) {
+    specs = downcast<List>(req.params->get(0));
+  }
+  if (!specs || specs->empty()) {
+    return {false, true};
+  }
+  TokenCalls res{false, false};
+  for (const auto& spec : *specs) {
+    auto dict = downcast<Dict>(spec);
+    const List* params = dict ? downcast<List>(dict->get("params")) : nullptr;
+    if (rpc::hasValidToken(params, e)) {
+      res.anyValid = true;
+    }
+    else {
+      res.needsPassphrase = true;
+    }
+  }
+  return res;
+}
+
+// Runs json, a call or batch that passed
+// status_page::acceptsPassphraseRpc(), storing one response per call in
+// results, in order. A call carrying a token is authorized by its token
+// alone. The passphrase is checked once, only if a valid call needs it.
+// If the client is locked out, returns false without running any call,
+// unless a call carries a valid token: then every call takes the token
+// path. On a wrong passphrase, the calls that need it take the token
+// path and are unauthorized.
+bool processPassphraseJsonRpc(const HttpServer& server, DownloadEngine* e,
+                              ValueBase* json,
+                              std::vector<rpc::RpcResponse>& results)
+{
+  std::vector<Dict*> calls;
+  auto batch = downcast<List>(json);
+  if (batch) {
+    for (auto& v : *batch) {
+      auto call = downcast<Dict>(v);
+      if (call) {
+        calls.push_back(call);
+      }
+    }
+  }
+  else {
+    auto call = downcast<Dict>(json);
+    if (!call) {
+      results.push_back(rpc::createJsonRpcErrorResponse(
+          -32600, "Invalid Request.", Null::g()));
+      return true;
+    }
+    calls.push_back(call);
+  }
+  // Every call is parsed before any runs, so that a lockout runs none.
+  std::vector<rpc::RpcRequest> reqs(calls.size());
+  std::vector<std::unique_ptr<rpc::RpcResponse>> errors;
+  std::vector<bool> needs(calls.size(), false);
+  bool anyValid = false;
+  bool needsPassphrase = false;
+  for (size_t i = 0; i < calls.size(); ++i) {
+    errors.push_back(rpc::parseJsonRpcRequest(calls[i], reqs[i]));
+    if (!errors.back()) {
+      auto tokenCalls = getTokenCalls(reqs[i], e);
+      needs[i] = tokenCalls.needsPassphrase;
+      anyValid = anyValid || tokenCalls.anyValid;
+      needsPassphrase = needsPassphrase || tokenCalls.needsPassphrase;
+    }
+  }
+  bool passphraseOK = false;
+  if (needsPassphrase) {
+    switch (status_page::checkBasicAuthorization(server, e)) {
+    case PASSPHRASE_OK:
+      passphraseOK = true;
+      break;
+    case PASSPHRASE_LOCKED:
+      if (!anyValid) {
+        return false;
+      }
+      break;
+    case PASSPHRASE_MISSING:
+    case PASSPHRASE_WRONG:
+      break;
+    }
+  }
+  for (size_t i = 0; i < calls.size(); ++i) {
+    if (errors[i]) {
+      results.push_back(std::move(*errors[i]));
+      continue;
+    }
+    reqs[i].passphraseAuthorized = passphraseOK && needs[i];
+    results.push_back(rpc::dispatch(std::move(reqs[i]), e));
+  }
+  return true;
 }
 } // namespace
 
@@ -259,6 +373,14 @@ bool HttpServerBodyCommand::execute()
           ssize_t error = 0;
           if (httpServer_->getRequestType() == RPC_TYPE_JSONP) {
             json::JsonGetParam param = json::decodeGetParams(query);
+            if (httpServer_->getStatusPage() &&
+                !status_page::acceptsJsonpCallback(param.callback)) {
+              // Refused before parsing; answered as JSON, never as script.
+              rpc::RpcResponse res(rpc::createJsonRpcErrorResponse(
+                  -32600, "Invalid Request.", Null::g()));
+              sendJsonRpcResponse(res, A2STR::NIL);
+              return true;
+            }
             callback = param.callback;
             ssize_t error = 0;
             json = json::ValueBaseJsonParser().parseFinal(
@@ -280,6 +402,22 @@ bool HttpServerBodyCommand::execute()
             rpc::RpcResponse res(rpc::createJsonRpcErrorResponse(
                 -32700, "Parse error.", Null::g()));
             sendJsonRpcResponse(res, callback);
+            return true;
+          }
+          if (status_page::acceptsPassphraseRpc(*httpServer_)) {
+            std::vector<rpc::RpcResponse> results;
+            if (!processPassphraseJsonRpc(*httpServer_, e_, json.get(),
+                                          results)) {
+              // Locked out: answered at once, as on the page routes.
+              httpServer_->feedResponse(429);
+              addHttpServerResponseCommand(false);
+            }
+            else if (downcast<List>(json)) {
+              sendJsonRpcBatchResponse(results, callback);
+            }
+            else {
+              sendJsonRpcResponse(results.front(), callback);
+            }
             return true;
           }
           Dict* jsondict = downcast<Dict>(json);
@@ -311,6 +449,13 @@ bool HttpServerBodyCommand::execute()
           }
           return true;
         }
+        case STATUS_PAGE_TYPE:
+          // Answered at once, also for 401 and 429: the limiter throttles
+          // guessing, and a browser without cached credentials gets a
+          // credential-less 401 first.
+          status_page::feedResponse(*httpServer_, e_);
+          addHttpServerResponseCommand(false);
+          return true;
         default:
           httpServer_->feedResponse(404);
           addHttpServerResponseCommand(false);

@@ -1052,6 +1052,17 @@
   _(" --enable-color[=true|false]  Enable color output for a terminal.")
 #define TEXT_RPC_SECRET                                                 \
   _(" --rpc-secret=TOKEN           Set RPC secret authorization token.")
+#define TEXT_STATUS_PAGE_PASSPHRASE                                     \
+  _(" --status-page-passphrase=PASSPHRASE\n"                             \
+    "                              Serve the status page from --status-page-dir\n" \
+    "                              on the RPC port. The page requires HTTP Basic\n" \
+    "                              authentication with PASSPHRASE as the password\n" \
+    "                              and any user name.\n" \
+    "                              aria2 refuses to start with this option unless\n" \
+    "                              --rpc-secure=true and --rpc-secret are given and\n" \
+    "                              --rpc-allow-origin-all and --rpc-user are not.")
+#define TEXT_STATUS_PAGE_DIR                                            \
+  _(" --status-page-dir=DIR        Serve the status page files from DIR.")
 #define TEXT_DSCP                                                       \
   _(" --dscp=DSCP                  Set DSCP value in outgoing IP packets of\n" \
     "                              BitTorrent traffic for QoS. This parameter sets\n" \

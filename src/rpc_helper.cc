@@ -42,8 +42,12 @@
 #include "RpcMethod.h"
 #include "RpcResponse.h"
 #include "RpcMethodFactory.h"
+#include "RpcMethodImpl.h"
 #include "LogFactory.h"
 #include "fmt.h"
+#include "prefs.h"
+#include "util.h"
+#include "a2functional.h"
 
 namespace aria2 {
 
@@ -77,16 +81,28 @@ RpcResponse createJsonRpcErrorResponse(int code, const std::string& msg,
                           std::move(id)};
 }
 
-RpcResponse processJsonRpcRequest(Dict* jsondict, DownloadEngine* e)
+namespace {
+std::unique_ptr<RpcResponse>
+createJsonRpcErrorResponsePtr(int code, const std::string& msg,
+                              std::unique_ptr<ValueBase> id)
+{
+  return make_unique<RpcResponse>(
+      createJsonRpcErrorResponse(code, msg, std::move(id)));
+}
+} // namespace
+
+std::unique_ptr<RpcResponse> parseJsonRpcRequest(Dict* jsondict,
+                                                 RpcRequest& req)
 {
   auto id = jsondict->popValue("id");
   if (!id) {
-    return createJsonRpcErrorResponse(-32600, "Invalid Request.", Null::g());
+    return createJsonRpcErrorResponsePtr(-32600, "Invalid Request.",
+                                         Null::g());
   }
   const String* methodName = downcast<String>(jsondict->get("method"));
   if (!methodName) {
-    return createJsonRpcErrorResponse(-32600, "Invalid Request.",
-                                      std::move(id));
+    return createJsonRpcErrorResponsePtr(-32600, "Invalid Request.",
+                                         std::move(id));
   }
   std::unique_ptr<List> params;
   auto tempParams = jsondict->popValue("params");
@@ -98,11 +114,89 @@ RpcResponse processJsonRpcRequest(Dict* jsondict, DownloadEngine* e)
   }
   else {
     // TODO No support for Named params
-    return createJsonRpcErrorResponse(-32602, "Invalid params.", std::move(id));
+    return createJsonRpcErrorResponsePtr(-32602, "Invalid params.",
+                                         std::move(id));
   }
   A2_LOG_INFO(fmt("Executing RPC method %s", methodName->s().c_str()));
-  RpcRequest req = {methodName->s(), std::move(params), std::move(id), true};
-  return getMethod(methodName->s())->execute(std::move(req), e);
+  req = {methodName->s(), std::move(params), std::move(id), true};
+  return nullptr;
+}
+
+bool hasValidToken(const List* params, DownloadEngine* e)
+{
+  if (!e || !params || params->empty()) {
+    return false;
+  }
+  auto t = downcast<String>(params->get(0));
+  return t && util::startsWith(t->s(), "token:") &&
+         e->validateToken(t->s().substr(6));
+}
+
+bool isPassphraseAllowed(const RpcRequest& req)
+{
+  static const char* const ALLOWED[] = {
+      TellActiveRpcMethod::getMethodName(),
+      TellWaitingRpcMethod::getMethodName(),
+      TellStoppedRpcMethod::getMethodName(),
+      TellStatusRpcMethod::getMethodName(),
+      GetGlobalStatRpcMethod::getMethodName(),
+      PauseRpcMethod::getMethodName(),
+      UnpauseRpcMethod::getMethodName(),
+      RemoveRpcMethod::getMethodName(),
+      PurgeDownloadResultRpcMethod::getMethodName(),
+      GetSiteSummaryRpcMethod::getMethodName(),
+      SystemMulticallRpcMethod::getMethodName(),
+  };
+  if (req.methodName == ChangeGlobalOptionRpcMethod::getMethodName()) {
+    // The options struct is the first parameter, so a call carrying an
+    // (invalid) token is rejected. Any other key rejects the whole call.
+    if (!req.params || req.params->empty()) {
+      return false;
+    }
+    auto options = downcast<Dict>(req.params->get(0));
+    if (!options) {
+      return false;
+    }
+    for (const auto& kv : *options) {
+      if (kv.first != PREF_SITE_CONCURRENT->k &&
+          kv.first != PREF_SITE_CONCURRENT_DEFAULT->k) {
+        return false;
+      }
+    }
+    return true;
+  }
+  for (auto name : ALLOWED) {
+    if (req.methodName == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+RpcResponse dispatch(RpcRequest req, DownloadEngine* e)
+{
+  if (req.passphraseAuthorized) {
+    if (hasValidToken(req.params.get(), e)) {
+      req.passphraseAuthorized = false;
+    }
+    else if (!isPassphraseAllowed(req)) {
+      A2_LOG_INFO(fmt("RPC method %s is not allowed on the status page"
+                      " passphrase.",
+                      req.methodName.c_str()));
+      return createUnauthorizedResponse(std::move(req));
+    }
+  }
+  return getMethod(req.methodName)->execute(std::move(req), e);
+}
+
+RpcResponse processJsonRpcRequest(Dict* jsondict, DownloadEngine* e)
+{
+  RpcRequest req;
+  auto error = parseJsonRpcRequest(jsondict, req);
+  if (error) {
+    return std::move(*error);
+  }
+  return dispatch(std::move(req), e);
 }
 
 } // namespace rpc
