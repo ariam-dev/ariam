@@ -93,7 +93,7 @@ template <typename InputIterator>
 InputIterator getNext(InputIterator first, InputIterator last, const int* tbl)
 {
   for (; first != last; ++first) {
-    if (tbl[static_cast<size_t>(*first)] != -1 || *first == '=') {
+    if (tbl[static_cast<unsigned char>(*first)] != -1 || *first == '=') {
       break;
     }
   }

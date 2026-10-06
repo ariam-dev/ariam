@@ -8,6 +8,7 @@ class Base64Test : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(Base64Test);
   CPPUNIT_TEST(testEncode);
   CPPUNIT_TEST(testDecode);
+  CPPUNIT_TEST(testDecodeHighBytes);
   CPPUNIT_TEST(testLongString);
   CPPUNIT_TEST_SUITE_END();
 
@@ -17,6 +18,7 @@ public:
 
   void testEncode();
   void testDecode();
+  void testDecodeHighBytes();
   void testLongString();
 };
 
@@ -93,6 +95,30 @@ void Base64Test::testDecode()
 
   s = "/w==";
   CPPUNIT_ASSERT_EQUAL(std::string(1, -1), base64::decode(s.begin(), s.end()));
+}
+
+void Base64Test::testDecodeHighBytes()
+{
+  // Bytes >= 0x80 are skipped as non-alphabet whether char is signed or not.
+  std::string s = "TW\xff"
+                  "Fu";
+  CPPUNIT_ASSERT_EQUAL(std::string("Man"), base64::decode(s.begin(), s.end()));
+
+  s = "\x80T\xfeW\xff"
+      "F\x81u\x90";
+  CPPUNIT_ASSERT_EQUAL(std::string("Man"), base64::decode(s.begin(), s.end()));
+
+  s = "\x80\xfe\xff";
+  CPPUNIT_ASSERT_EQUAL(std::string(""), base64::decode(s.begin(), s.end()));
+
+  s = "TQ\x80==";
+  CPPUNIT_ASSERT_EQUAL(std::string("M"), base64::decode(s.begin(), s.end()));
+
+  s = "TQ=\xff=";
+  CPPUNIT_ASSERT_EQUAL(std::string("M"), base64::decode(s.begin(), s.end()));
+
+  s = "TQ==\xff";
+  CPPUNIT_ASSERT_EQUAL(std::string("M"), base64::decode(s.begin(), s.end()));
 }
 
 void Base64Test::testLongString()
