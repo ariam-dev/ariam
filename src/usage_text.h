@@ -758,7 +758,9 @@
     "                              responds with 'Content-Encoding: gzip' or\n"  \
     "                              'Content-Encoding: deflate'.")
 #define TEXT_SAVE_SESSION                       \
-  _(" --save-session=FILE          Save error/unfinished downloads to FILE on exit.\n" \
+  _(" --save-session=FILE          Save unfinished downloads to FILE on exit.\n" \
+    "                              Downloads that stopped with an error are not\n" \
+    "                              saved.\n" \
     "                              You can pass this output file to aria2c with -i\n" \
     "                              option on restart. Please note that downloads\n" \
     "                              added by aria2.addTorrent and aria2.addMetalink\n" \
@@ -1012,10 +1014,9 @@
     "                              BitTorrent seeding which is recognized as\n" \
     "                              completed state.")
 #define TEXT_SAVE_NOT_FOUND                         \
-  _(" --save-not-found[=true|false] Save download with --save-session option even\n" \
-    "                              if the file was not found on the server. This\n" \
-    "                              option also saves control file in that\n" \
-    "                              situations.")
+  _(" --save-not-found[=true|false] No effect: --save-session never saves a\n" \
+    "                              download that stopped with an error, file not\n" \
+    "                              found on the server included.")
 #define TEXT_DISK_CACHE                         \
   _(" --disk-cache=SIZE            Enable disk cache. If SIZE is 0, the disk cache\n" \
     "                              is disabled. This feature caches the downloaded\n" \
@@ -1044,7 +1045,7 @@
 #define TEXT_CONSOLE_LOG_LEVEL                                          \
   _(" --console-log-level=LEVEL    Set log level to output to console.")
 #define TEXT_SAVE_SESSION_INTERVAL                                      \
-  _(" --save-session-interval=SEC  Save error/unfinished downloads to a file\n" \
+  _(" --save-session-interval=SEC  Save unfinished downloads to a file\n" \
     "                              specified by --save-session option every SEC\n" \
     "                              seconds. If 0 is given, file will be saved only\n" \
     "                              when aria2 exits.")

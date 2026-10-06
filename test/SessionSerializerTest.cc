@@ -7,6 +7,10 @@
 
 #include "TestUtil.h"
 #include "RequestGroupMan.h"
+#include "RequestGroup.h"
+#include "DownloadResult.h"
+#include "GroupId.h"
+#include "fmt.h"
 #include "array_fun.h"
 #include "download_helper.h"
 #include "prefs.h"
@@ -22,12 +26,12 @@ class SessionSerializerTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(SessionSerializerTest);
   CPPUNIT_TEST(testSave);
-  CPPUNIT_TEST(testSaveErrorDownload);
+  CPPUNIT_TEST(testSaveSkipsErrorDownload);
   CPPUNIT_TEST_SUITE_END();
 
 public:
   void testSave();
-  void testSaveErrorDownload();
+  void testSaveSkipsErrorDownload();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(SessionSerializerTest);
@@ -51,24 +55,18 @@ void SessionSerializerTest::testSave()
   std::shared_ptr<DownloadResult> drs[] = {
       // REMOVED downloads will not be saved.
       createDownloadResult(error_code::REMOVED, "http://removed"),
+      // Error downloads will not be saved.
       createDownloadResult(error_code::TIME_OUT, "http://error"),
       createDownloadResult(error_code::FINISHED, "http://finished"),
       createDownloadResult(error_code::FINISHED, "http://force-save")};
   // This URI will be discarded because same URI exists in remaining
   // URIs.
-  drs[1]->fileEntries[0]->getRemainingUris().push_back("http://error");
-  drs[1]->fileEntries[0]->getRemainingUris().push_back("http://error3");
+  drs[3]->fileEntries[0]->getRemainingUris().push_back("http://force-save");
+  drs[3]->fileEntries[0]->getRemainingUris().push_back("http://force-save3");
   // This URI will be discarded because same URI exists in remaining
   // URIs.
-  drs[1]->fileEntries[0]->getRemainingUris().push_back("http://error");
-  //
-  // This URI will be discarded because same URI exists in remaining
-  // URIs.
-  drs[1]->fileEntries[0]->getSpentUris().push_back("http://error");
-  drs[1]->fileEntries[0]->getSpentUris().push_back("http://error2");
-  // This URI will be discarded because same URI exists in remaining
-  // URIs.
-  drs[1]->fileEntries[0]->getSpentUris().push_back("http://error");
+  drs[3]->fileEntries[0]->getSpentUris().push_back("http://force-save");
+  drs[3]->fileEntries[0]->getSpentUris().push_back("http://force-save2");
 
   drs[3]->option->put(PREF_FORCE_SAVE, A2_V_TRUE);
   for (size_t i = 0; i < sizeof(drs) / sizeof(drs[0]); ++i) {
@@ -86,13 +84,10 @@ void SessionSerializerTest::testSave()
   std::ifstream ss(filename.c_str(), std::ios::binary);
   std::string line;
   std::getline(ss, line);
-  CPPUNIT_ASSERT_EQUAL(
-      std::string("http://error\thttp://error3\thttp://error2\t"), line);
-  std::getline(ss, line);
-  CPPUNIT_ASSERT_EQUAL(fmt(" gid=%s", drs[1]->gid->toHex().c_str()), line);
-  std::getline(ss, line);
   // finished and force-save option
-  CPPUNIT_ASSERT_EQUAL(std::string("http://force-save\t"), line);
+  CPPUNIT_ASSERT_EQUAL(std::string("http://force-save\thttp://force-save3\t"
+                                   "http://force-save2\t"),
+                       line);
   std::getline(ss, line);
   CPPUNIT_ASSERT_EQUAL(fmt(" gid=%s", drs[3]->gid->toHex().c_str()), line);
   std::getline(ss, line);
@@ -134,25 +129,49 @@ void SessionSerializerTest::testSave()
 #endif // defined(ENABLE_BITTORRENT) && defined(ENABLE_METALINK)
 }
 
-void SessionSerializerTest::testSaveErrorDownload()
+void SessionSerializerTest::testSaveSkipsErrorDownload()
 {
-  std::shared_ptr<DownloadResult> dr =
-      createDownloadResult(error_code::TIME_OUT, "http://error");
-  dr->fileEntries[0]->getSpentUris().swap(
-      dr->fileEntries[0]->getRemainingUris());
+  std::shared_ptr<DownloadResult> drs[] = {
+      createDownloadResult(error_code::TIME_OUT, "http://error"),
+      createDownloadResult(error_code::RESOURCE_NOT_FOUND, "http://not-found")};
+  for (const auto& dr : drs) {
+    dr->fileEntries[0]->getSpentUris().swap(
+        dr->fileEntries[0]->getRemainingUris());
+  }
+  // --save-not-found does not save an error download.
+  drs[1]->option->put(PREF_SAVE_NOT_FOUND, A2_V_TRUE);
+  std::vector<std::shared_ptr<RequestGroup>> groups{
+      createRequestGroup(0, 0, "waiting", "http://waiting",
+                         std::make_shared<Option>()),
+      createRequestGroup(0, 0, "paused", "http://paused",
+                         std::make_shared<Option>())};
+  groups[1]->setPauseRequested(true);
   std::shared_ptr<Option> option(new Option());
   option->put(PREF_MAX_DOWNLOAD_RESULT, "10");
-  RequestGroupMan rgman{std::vector<std::shared_ptr<RequestGroup>>(), 1,
-                        option.get()};
-  rgman.addDownloadResult(dr);
+  RequestGroupMan rgman{groups, 1, option.get()};
+  for (const auto& dr : drs) {
+    rgman.addDownloadResult(dr);
+  }
   SessionSerializer s(&rgman);
   std::string filename =
-      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testSaveErrorDownload";
+      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testSaveSkipsErrorDownload";
   CPPUNIT_ASSERT(s.save(filename));
   std::ifstream ss(filename.c_str(), std::ios::binary);
   std::string line;
   std::getline(ss, line);
-  CPPUNIT_ASSERT_EQUAL(std::string("http://error\t"), line);
+  CPPUNIT_ASSERT_EQUAL(std::string("http://waiting\t"), line);
+  std::getline(ss, line);
+  CPPUNIT_ASSERT_EQUAL(
+      fmt(" gid=%s", GroupId::toHex(groups[0]->getGID()).c_str()), line);
+  std::getline(ss, line);
+  CPPUNIT_ASSERT_EQUAL(std::string("http://paused\t"), line);
+  std::getline(ss, line);
+  CPPUNIT_ASSERT_EQUAL(
+      fmt(" gid=%s", GroupId::toHex(groups[1]->getGID()).c_str()), line);
+  std::getline(ss, line);
+  CPPUNIT_ASSERT_EQUAL(std::string(" pause=true"), line);
+  std::getline(ss, line);
+  CPPUNIT_ASSERT(!ss);
 }
 
 } // namespace aria2

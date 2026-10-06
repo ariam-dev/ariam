@@ -63,7 +63,8 @@ namespace aria2 {
 
 SessionSerializer::SessionSerializer(RequestGroupMan* requestGroupMan)
     : rgman_{requestGroupMan},
-      saveError_{true},
+      // A restart must not re-queue failed downloads.
+      saveError_{false},
       saveInProgress_{true},
       saveWaiting_{true}
 {
