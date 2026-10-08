@@ -120,7 +120,8 @@ private:
     const std::string& getOptions() const { return options_; }
   };
 
-  // key = IP address:port, value = SocketPoolEntry
+  // key = IP address:port (prefixed with the origin for a direct
+  // HTTP(S) connection), value = SocketPoolEntry
   std::multimap<std::string, SocketPoolEntry> socketPool_;
 
   Timer lastSocketPoolScan_;
@@ -285,8 +286,11 @@ public:
                   uint16_t port, const std::string& username,
                   const std::string& proxyhost, uint16_t proxyport);
 
+  // Pops a direct (no proxy) HTTP(S) connection to one of ipaddrs on port
+  // pooled for request's scheme and host by poolSocket(request, nullptr, ...).
   std::shared_ptr<SocketCore>
-  popPooledSocket(const std::vector<std::string>& ipaddrs, uint16_t port);
+  popPooledSocket(const std::shared_ptr<Request>& request,
+                  const std::vector<std::string>& ipaddrs, uint16_t port);
 
   std::shared_ptr<SocketCore>
   popPooledSocket(std::string& options, const std::vector<std::string>& ipaddrs,

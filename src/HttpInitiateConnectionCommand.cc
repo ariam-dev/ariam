@@ -117,7 +117,7 @@ std::unique_ptr<Command> HttpInitiateConnectionCommand::createNextCommand(
   }
   else {
     std::shared_ptr<SocketCore> pooledSocket =
-        getDownloadEngine()->popPooledSocket(resolvedAddresses,
+        getDownloadEngine()->popPooledSocket(getRequest(), resolvedAddresses,
                                              getRequest()->getPort());
     if (!pooledSocket) {
       A2_LOG_INFO(fmt(MSG_CONNECTING_TO_SERVER, getCuid(), addr.c_str(), port));

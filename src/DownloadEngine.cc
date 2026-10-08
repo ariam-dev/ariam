@@ -75,6 +75,7 @@
 #endif // ENABLE_WEBSOCKET
 #include "Option.h"
 #include "util_security.h"
+#include "SiteConcurrency.h"
 
 namespace aria2 {
 
@@ -352,6 +353,16 @@ std::string createSockPoolKey(const std::string& host, uint16_t port,
   }
   return key;
 }
+
+// Key of a direct HTTP(S) connection, prefixed with the origin it was
+// opened (and for TLS, verified) for, so it is reused only for that origin.
+std::string createHttpSockPoolKey(const std::shared_ptr<Request>& request,
+                                  const std::string& ipaddr, uint16_t port)
+{
+  return fmt("%s://%s/", util::toLower(request->getProtocol()).c_str(),
+             SiteConcurrency::normalizeHost(request->getHost()).c_str()) +
+         createSockPoolKey(ipaddr, port, A2STR::NIL, A2STR::NIL, 0);
+}
 } // namespace
 
 void DownloadEngine::poolSocket(const std::string& ipaddr, uint16_t port,
@@ -408,8 +419,8 @@ void DownloadEngine::poolSocket(const std::shared_ptr<Request>& request,
 
   Endpoint peerInfo;
   if (getPeerInfo(peerInfo, socket)) {
-    poolSocket(peerInfo.addr, peerInfo.port, A2STR::NIL, 0, socket,
-               std::move(timeout));
+    poolSocket(createHttpSockPoolKey(request, peerInfo.addr, peerInfo.port),
+               SocketPoolEntry(socket, std::move(timeout)));
   }
 }
 
@@ -486,13 +497,16 @@ DownloadEngine::popPooledSocket(std::string& options, const std::string& ipaddr,
 }
 
 std::shared_ptr<SocketCore>
-DownloadEngine::popPooledSocket(const std::vector<std::string>& ipaddrs,
+DownloadEngine::popPooledSocket(const std::shared_ptr<Request>& request,
+                                const std::vector<std::string>& ipaddrs,
                                 uint16_t port)
 {
   std::shared_ptr<SocketCore> s;
   for (const auto& ipaddr : ipaddrs) {
-    s = popPooledSocket(ipaddr, port, A2STR::NIL, 0);
-    if (s) {
+    auto i = findSocketPoolEntry(createHttpSockPoolKey(request, ipaddr, port));
+    if (i != socketPool_.end()) {
+      s = (*i).second.getSocket();
+      socketPool_.erase(i);
       break;
     }
   }

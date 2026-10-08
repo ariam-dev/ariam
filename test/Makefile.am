@@ -94,7 +94,8 @@ aria2c_SOURCES = AllTest.cc\
 	SiteConcurrencyTest.cc\
 	SiteConcurrencyFileTest.cc\
 	PassphraseLimiterTest.cc\
-	StatusPageTest.cc
+	StatusPageTest.cc\
+	DownloadEngineTest.cc
 
 if ENABLE_XML_RPC
 aria2c_SOURCES += XmlRpcRequestParserControllerTest.cc
