@@ -29,6 +29,7 @@ class RequestGroupManTest : public CppUnit::TestFixture {
 
   CPPUNIT_TEST_SUITE(RequestGroupManTest);
   CPPUNIT_TEST(testIsSameFileBeingDownloaded);
+  CPPUNIT_TEST(testIsSameFileBeingDownloaded_paused);
   CPPUNIT_TEST(testGetInitialCommands);
   CPPUNIT_TEST(testLoadServerStat);
   CPPUNIT_TEST(testSaveServerStat);
@@ -70,6 +71,7 @@ public:
   }
 
   void testIsSameFileBeingDownloaded();
+  void testIsSameFileBeingDownloaded_paused();
   void testGetInitialCommands();
   void testLoadServerStat();
   void testSaveServerStat();
@@ -111,6 +113,33 @@ void RequestGroupManTest::testIsSameFileBeingDownloaded()
 
   gm.addRequestGroup(rg1);
   gm.addRequestGroup(rg2);
+
+  CPPUNIT_ASSERT(gm.isSameFileBeingDownloaded(rg1.get()));
+
+  dctx2->getFirstFileEntry()->setPath("aria2.tar.gz");
+
+  CPPUNIT_ASSERT(!gm.isSameFileBeingDownloaded(rg1.get()));
+}
+
+void RequestGroupManTest::testIsSameFileBeingDownloaded_paused()
+{
+  auto rg1 = std::make_shared<RequestGroup>(GroupId::create(),
+                                            util::copy(option_));
+  auto rg2 = std::make_shared<RequestGroup>(GroupId::create(),
+                                            util::copy(option_));
+
+  auto dctx1 = std::make_shared<DownloadContext>(0, 0, "aria2.tar.bz2");
+  auto dctx2 = std::make_shared<DownloadContext>(0, 0, "aria2.tar.bz2");
+
+  rg1->setDownloadContext(dctx1);
+  rg2->setDownloadContext(dctx2);
+  rg2->setPauseRequested(true);
+
+  RequestGroupMan gm(std::vector<std::shared_ptr<RequestGroup>>(), 1,
+                     option_.get());
+
+  gm.addRequestGroup(rg1);
+  gm.addReservedGroup(rg2);
 
   CPPUNIT_ASSERT(gm.isSameFileBeingDownloaded(rg1.get()));
 

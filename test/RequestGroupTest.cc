@@ -7,6 +7,10 @@
 #include "FileEntry.h"
 #include "PieceStorage.h"
 #include "DownloadResult.h"
+#include "RequestGroupMan.h"
+#include "DefaultBtProgressInfoFile.h"
+#include "File.h"
+#include "TestUtil.h"
 
 namespace aria2 {
 
@@ -15,6 +19,9 @@ class RequestGroupTest : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(RequestGroupTest);
   CPPUNIT_TEST(testGetFirstFilePath);
   CPPUNIT_TEST(testTryAutoFileRenaming);
+  CPPUNIT_TEST(testTryAutoFileRenaming_activeDownload);
+  CPPUNIT_TEST(testTryAutoFileRenaming_pausedDownload);
+  CPPUNIT_TEST(testAdjustFilename_pausedDownload);
   CPPUNIT_TEST(testCreateDownloadResult);
   CPPUNIT_TEST_SUITE_END();
 
@@ -26,6 +33,9 @@ public:
 
   void testGetFirstFilePath();
   void testTryAutoFileRenaming();
+  void testTryAutoFileRenaming_activeDownload();
+  void testTryAutoFileRenaming_pausedDownload();
+  void testAdjustFilename_pausedDownload();
   void testCreateDownloadResult();
 };
 
@@ -98,6 +108,115 @@ void RequestGroupTest::testTryAutoFileRenaming()
   group.tryAutoFileRenaming();
   CPPUNIT_ASSERT_EQUAL(std::string("/tmp.txt/.bashrc.1.txt"),
                        group.getFirstFilePath());
+}
+
+void RequestGroupTest::testTryAutoFileRenaming_activeDownload()
+{
+  const std::string path =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_activeDownload/myfile.txt";
+  const std::string path1 =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_activeDownload/myfile.1.txt";
+  const std::string path2 =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_activeDownload/myfile.2.txt";
+  // myfile.1.txt is a partial download with its control file.
+  createFile(path1, 0);
+  createFile(path1 + ".aria2", 0);
+  File(path2).remove();
+  option_->put(PREF_AUTO_FILE_RENAMING, "true");
+
+  auto ctx = std::make_shared<DownloadContext>(1_k, 1_k, path);
+  auto group = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  group->setDownloadContext(ctx);
+
+  auto otherCtx = std::make_shared<DownloadContext>(1_k, 1_k, path1);
+  auto other = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  other->setDownloadContext(otherCtx);
+
+  RequestGroupMan gm(std::vector<std::shared_ptr<RequestGroup>>(), 1,
+                     option_.get());
+  gm.addRequestGroup(other);
+  gm.addRequestGroup(group);
+  group->setRequestGroupMan(&gm);
+
+  group->tryAutoFileRenaming();
+  CPPUNIT_ASSERT_EQUAL(path2, group->getFirstFilePath());
+
+  // Only myfile.txt is owned: myfile.1.txt is resumed.
+  otherCtx->getFirstFileEntry()->setPath(path);
+  ctx->getFirstFileEntry()->setPath(path);
+  group->tryAutoFileRenaming();
+  CPPUNIT_ASSERT_EQUAL(path1, group->getFirstFilePath());
+}
+
+void RequestGroupTest::testTryAutoFileRenaming_pausedDownload()
+{
+  const std::string path =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_pausedDownload/myfile.txt";
+  const std::string path1 =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_pausedDownload/myfile.1.txt";
+  const std::string path2 =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_pausedDownload/myfile.2.txt";
+  // myfile.1.txt is a partial download with its control file.
+  createFile(path1, 0);
+  createFile(path1 + ".aria2", 0);
+  File(path2).remove();
+  option_->put(PREF_AUTO_FILE_RENAMING, "true");
+
+  auto ctx = std::make_shared<DownloadContext>(1_k, 1_k, path);
+  auto group = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  group->setDownloadContext(ctx);
+
+  auto otherCtx = std::make_shared<DownloadContext>(1_k, 1_k, path1);
+  auto other = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  other->setDownloadContext(otherCtx);
+  other->setPauseRequested(true);
+
+  RequestGroupMan gm(std::vector<std::shared_ptr<RequestGroup>>(), 1,
+                     option_.get());
+  gm.addReservedGroup(other);
+  gm.addRequestGroup(group);
+  group->setRequestGroupMan(&gm);
+
+  group->tryAutoFileRenaming();
+  CPPUNIT_ASSERT_EQUAL(path2, group->getFirstFilePath());
+}
+
+void RequestGroupTest::testAdjustFilename_pausedDownload()
+{
+  const std::string path =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_adjustFilename/myfile.txt";
+  const std::string path1 =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupTest_adjustFilename/myfile.1.txt";
+  // myfile.txt is the paused download's partial file with its control file.
+  createFile(path, 1_k);
+  createFile(path + ".aria2", 0);
+  File(path1).remove();
+  File(path1 + ".aria2").remove();
+  option_->put(PREF_AUTO_FILE_RENAMING, "true");
+
+  auto otherCtx = std::make_shared<DownloadContext>(1_k, 1_k, path);
+  auto other = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  other->setDownloadContext(otherCtx);
+  other->setPauseRequested(true);
+
+  auto ctx = std::make_shared<DownloadContext>(1_k, 1_k, path);
+  auto group = std::make_shared<RequestGroup>(GroupId::create(), option_);
+  group->setDownloadContext(ctx);
+
+  RequestGroupMan gm(std::vector<std::shared_ptr<RequestGroup>>(), 1,
+                     option_.get());
+  gm.addReservedGroup(other);
+  gm.addRequestGroup(group);
+  group->setRequestGroupMan(&gm);
+
+  // The paused download owns myfile.txt: a download of the same name and
+  // length does not resume its control file.
+  group->adjustFilename(
+      std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
+  CPPUNIT_ASSERT_EQUAL(path1, group->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL(path, other->getFirstFilePath());
+  CPPUNIT_ASSERT(File(path + ".aria2").exists());
+  CPPUNIT_ASSERT_EQUAL((int64_t)1_k, File(path).size());
 }
 
 void RequestGroupTest::testCreateDownloadResult()

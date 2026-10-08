@@ -878,21 +878,6 @@ std::string RequestGroupMan::formatDownloadResult(
   return o.str();
 }
 
-namespace {
-template <typename StringInputIterator, typename FileEntryInputIterator>
-bool sameFilePathExists(StringInputIterator sfirst, StringInputIterator slast,
-                        FileEntryInputIterator ffirst,
-                        FileEntryInputIterator flast)
-{
-  for (; ffirst != flast; ++ffirst) {
-    if (std::binary_search(sfirst, slast, (*ffirst)->getPath())) {
-      return true;
-    }
-  }
-  return false;
-}
-} // namespace
-
 bool RequestGroupMan::isSameFileBeingDownloaded(
     RequestGroup* requestGroup) const
 {
@@ -901,20 +886,30 @@ bool RequestGroupMan::isSameFileBeingDownloaded(
   if (!requestGroup->isPreLocalFileCheckEnabled()) {
     return false;
   }
-  std::vector<std::string> files;
-  for (auto& rg : requestGroups_) {
-    if (rg.get() != requestGroup) {
-      const std::vector<std::shared_ptr<FileEntry>>& entries =
-          rg->getDownloadContext()->getFileEntries();
-      std::transform(entries.begin(), entries.end(), std::back_inserter(files),
-                     std::mem_fn(&FileEntry::getPath));
+  for (auto& entry : requestGroup->getDownloadContext()->getFileEntries()) {
+    if (isFileOwned(entry->getPath(), requestGroup)) {
+      return true;
     }
   }
-  std::sort(files.begin(), files.end());
-  const std::vector<std::shared_ptr<FileEntry>>& entries =
-      requestGroup->getDownloadContext()->getFileEntries();
-  return sameFilePathExists(files.begin(), files.end(), entries.begin(),
-                            entries.end());
+  return false;
+}
+
+bool RequestGroupMan::isFileOwned(const std::string& path,
+                                  const RequestGroup* requestGroup) const
+{
+  for (auto groups : {&requestGroups_, &reservedGroups_}) {
+    for (auto& rg : *groups) {
+      if (rg.get() == requestGroup) {
+        continue;
+      }
+      for (auto& entry : rg->getDownloadContext()->getFileEntries()) {
+        if (entry->getPath() == path) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 void RequestGroupMan::halt()

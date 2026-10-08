@@ -216,7 +216,16 @@ public:
 
   void showDownloadResults(OutputFile& o, bool full) const;
 
+  // Returns true if requestGroup checks local files before download and
+  // isFileOwned() is true for one of its file paths.
   bool isSameFileBeingDownloaded(RequestGroup* requestGroup) const;
+
+  // Returns true if a RequestGroup other than requestGroup, in
+  // requestGroups_ or reservedGroups_ (where paused downloads wait with
+  // their path), has a FileEntry at path. Every download claiming a file
+  // name checks this.
+  bool isFileOwned(const std::string& path,
+                   const RequestGroup* requestGroup) const;
 
   TransferStat calculateStat();
 

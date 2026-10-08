@@ -814,6 +814,11 @@ void RequestGroup::tryAutoFileRenaming()
     auto newfilename = fmt("%s.%d%s", fn.c_str(), i, ext.c_str());
     File newfile(newfilename);
     File ctrlfile(newfile.getPath() + DefaultBtProgressInfoFile::getSuffix());
+    // An active or paused download may own newfile and its control file.
+    if (requestGroupMan_ &&
+        requestGroupMan_->isFileOwned(newfile.getPath(), this)) {
+      continue;
+    }
     if (!newfile.exists() || (newfile.exists() && ctrlfile.exists())) {
       downloadContext_->getFirstFileEntry()->setPath(newfile.getPath());
       return;
