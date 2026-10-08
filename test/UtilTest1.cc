@@ -950,9 +950,31 @@ void UtilTest1::testParseContentDisposition1()
 
   // attwithasciifilenamenqs
   val = "attachment; filename=foo.html ;";
-  CPPUNIT_ASSERT_EQUAL((ssize_t)-1, util::parse_content_disposition(
-                                        dest, destlen, &cs, &cslen, val.c_str(),
-                                        val.size(), false));
+  CPPUNIT_ASSERT_EQUAL((ssize_t)8, util::parse_content_disposition(
+                                       dest, destlen, &cs, &cslen, val.c_str(),
+                                       val.size(), false));
+  CPPUNIT_ASSERT_EQUAL(std::string("foo.html"),
+                       std::string(&dest[0], &dest[8]));
+
+  val = "attachment; filename=\"foo.html\";";
+  CPPUNIT_ASSERT_EQUAL((ssize_t)8, util::parse_content_disposition(
+                                       dest, destlen, &cs, &cslen, val.c_str(),
+                                       val.size(), false));
+  CPPUNIT_ASSERT_EQUAL(std::string("foo.html"),
+                       std::string(&dest[0], &dest[8]));
+
+  val = "attachment; filename*=UTF-8''foo.html;";
+  CPPUNIT_ASSERT_EQUAL((ssize_t)8, util::parse_content_disposition(
+                                       dest, destlen, &cs, &cslen, val.c_str(),
+                                       val.size(), false));
+  CPPUNIT_ASSERT_EQUAL(std::string("UTF-8"), std::string(cs, cslen));
+  CPPUNIT_ASSERT_EQUAL(std::string("foo.html"),
+                       std::string(&dest[0], &dest[8]));
+
+  val = "attachment;";
+  CPPUNIT_ASSERT_EQUAL((ssize_t)0, util::parse_content_disposition(
+                                       dest, destlen, &cs, &cslen, val.c_str(),
+                                       val.size(), false));
 
   // attemptyparam
   val = "attachment; ;filename=foo";

@@ -1552,6 +1552,7 @@ ssize_t parse_content_disposition(char* dest, size_t destlen,
   case CD_BEFORE_DISPOSITION_TYPE:
   case CD_AFTER_DISPOSITION_TYPE:
   case CD_DISPOSITION_TYPE:
+  case CD_BEFORE_DISPOSITION_PARM_NAME:
   case CD_AFTER_VALUE:
   case CD_TOKEN:
     return destlen - dlen;
