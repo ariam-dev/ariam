@@ -673,12 +673,33 @@ bool RequestGroup::downloadFinishedByFileLength()
   return false;
 }
 
+namespace {
+// A file with a control file suffix would be taken for another
+// download's control file, or overwritten by its progress save.
+bool hasControlFileSuffix(const std::string& path)
+{
+  const auto& suffix = DefaultBtProgressInfoFile::getSuffix();
+  return util::endsWith(path, suffix) ||
+         util::endsWith(path, suffix + "__temp");
+}
+} // namespace
+
 void RequestGroup::adjustFilename(
     const std::shared_ptr<BtProgressInfoFile>& infoFile)
 {
   if (!isPreLocalFileCheckEnabled()) {
     // OK, no need to care about filename.
     return;
+  }
+  const auto& firstFileEntry = downloadContext_->getFirstFileEntry();
+  if (hasControlFileSuffix(firstFileEntry->getPath())) {
+    // Appending "_" leaves no control file suffix, and auto renaming
+    // keeps the last extension, so it cannot restore one.
+    firstFileEntry->setPath(firstFileEntry->getPath() + "_");
+    infoFile->updateFilename();
+    A2_LOG_NOTICE(
+        fmt("File name ends in a control file suffix. Renamed to %s.",
+            getFirstFilePath().c_str()));
   }
   // TODO need this?
   if (requestGroupMan_) {
