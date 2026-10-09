@@ -36,6 +36,7 @@ class RequestGroupManTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testChangeReservedGroupPosition);
   CPPUNIT_TEST(testFillRequestGroupFromReserver);
   CPPUNIT_TEST(testFillRequestGroupFromReserver_uriParser);
+  CPPUNIT_TEST(testFillRequestGroupFromReserver_skippedOwnsPath);
   CPPUNIT_TEST(testFillRequestGroupFromReserver_siteAcceptance);
   CPPUNIT_TEST(testFillRequestGroupFromReserver_siteSlotFrees);
   CPPUNIT_TEST(testFillRequestGroupFromReserver_siteFifo);
@@ -78,6 +79,7 @@ public:
   void testChangeReservedGroupPosition();
   void testFillRequestGroupFromReserver();
   void testFillRequestGroupFromReserver_uriParser();
+  void testFillRequestGroupFromReserver_skippedOwnsPath();
   void testFillRequestGroupFromReserver_siteAcceptance();
   void testFillRequestGroupFromReserver_siteSlotFrees();
   void testFillRequestGroupFromReserver_siteFifo();
@@ -287,6 +289,35 @@ void RequestGroupManTest::testFillRequestGroupFromReserver_uriParser()
   itr = rgman_->getReservedGroups().begin();
   CPPUNIT_ASSERT_EQUAL(rgs[0]->getGID(), (*itr)->getGID());
   CPPUNIT_ASSERT_EQUAL((size_t)3, rgman_->getRequestGroups().size());
+}
+
+void RequestGroupManTest::testFillRequestGroupFromReserver_skippedOwnsPath()
+{
+  std::string dir =
+      A2_TEST_OUT_DIR "/aria2_RequestGroupManTest_skippedOwnsPath";
+  File(dir).mkdirs();
+  File(dir + "/x.1.bin").remove();
+  File(dir + "/x.1.bin.aria2").remove();
+  auto a = createRequestGroup(0, 0, dir + "/x.bin", "http://host/a",
+                              util::copy(option_));
+  a->setPauseRequested(true);
+  auto opt = util::copy(option_);
+  opt->put(PREF_AUTO_FILE_RENAMING, A2_V_TRUE);
+  // The engine has no FileAllocationMan.
+  opt->put(PREF_FILE_ALLOCATION, V_NONE);
+  auto b = createRequestGroup(1024, 10, dir + "/x.bin", "http://host/b", opt);
+  rgman_->addReservedGroup(a);
+  rgman_->addReservedGroup(b);
+  rgman_->fillRequestGroupFromReserver(e_.get());
+  // A is skipped and stays in the queue, where it owns x.bin while B
+  // starts, so B is renamed.
+  CPPUNIT_ASSERT_EQUAL((size_t)1, rgman_->getRequestGroups().size());
+  CPPUNIT_ASSERT_EQUAL(b->getGID(),
+                       (*rgman_->getRequestGroups().begin())->getGID());
+  CPPUNIT_ASSERT_EQUAL((int)RequestGroup::STATE_ACTIVE, b->getState());
+  CPPUNIT_ASSERT_EQUAL(dir + "/x.1.bin", b->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL((size_t)1, rgman_->getReservedGroups().size());
+  CPPUNIT_ASSERT_EQUAL(a->getGID(), getReservedGroup(rgman_, 0)->getGID());
 }
 
 namespace {

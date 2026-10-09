@@ -526,7 +526,6 @@ void RequestGroupMan::fillRequestGroupFromReserver(DownloadEngine* e)
   }
   int count = 0;
   int num = maxConcurrentDownloads - numActive_;
-  std::vector<std::shared_ptr<RequestGroup>> pending;
 
   // Groups started below are counted too, so that one call does not
   // start more downloads of a site than its limit.
@@ -539,86 +538,76 @@ void RequestGroupMan::fillRequestGroupFromReserver(DownloadEngine* e)
     }
   }
 
-  // Also runs when the loop throws, so that no skipped group is lost.
-  auto restorePending = [&]() {
-    if (!pending.empty()) {
-      reservedGroups_.insert(reservedGroups_.begin(), RequestGroupKeyFunc(),
-                             pending.begin(), pending.end());
-    }
-  };
-  try {
-    while (count < num && (uriListParser_ || !reservedGroups_.empty())) {
-      if (uriListParser_ && reservedGroups_.empty()) {
-        std::vector<std::shared_ptr<RequestGroup>> groups;
-        // May throw exception
-        bool ok = createRequestGroupFromUriListParser(groups, option_,
-                                                      uriListParser_.get());
-        if (ok) {
-          appendReservedGroup(reservedGroups_, groups.begin(), groups.end());
-        }
-        else {
-          uriListParser_.reset();
-          if (reservedGroups_.empty()) {
-            break;
-          }
-        }
+  // A skipped group stays in reservedGroups_, so that isFileOwned() sees
+  // its path while later groups start.
+  size_t pos = 0;
+  while (count < num) {
+    if (pos >= reservedGroups_.size()) {
+      if (!uriListParser_) {
+        break;
       }
-      std::shared_ptr<RequestGroup> groupToAdd = *reservedGroups_.begin();
-      reservedGroups_.pop_front();
-      if ((keepRunning_ && groupToAdd->isPauseRequested()) ||
-          !groupToAdd->isDependencyResolved()) {
-        pending.push_back(groupToAdd);
+      std::vector<std::shared_ptr<RequestGroup>> groups;
+      // May throw exception
+      bool ok = createRequestGroupFromUriListParser(groups, option_,
+                                                    uriListParser_.get());
+      if (ok) {
+        appendReservedGroup(reservedGroups_, groups.begin(), groups.end());
+      }
+      else {
+        uriListParser_.reset();
+      }
+      continue;
+    }
+    std::shared_ptr<RequestGroup> groupToAdd = reservedGroups_[pos];
+    if ((keepRunning_ && groupToAdd->isPauseRequested()) ||
+        !groupToAdd->isDependencyResolved()) {
+      ++pos;
+      continue;
+    }
+    if (siteLimited) {
+      auto m = sites.classify(*groupToAdd->getOption());
+      auto& active = siteActive[m.site];
+      if (m.limit > 0 && active >= m.limit) {
+        A2_LOG_DEBUG(fmt("GID#%s - Site %s is at its limit %d.",
+                         GroupId::toHex(groupToAdd->getGID()).c_str(),
+                         m.site.c_str(), m.limit));
+        ++pos;
         continue;
       }
-      if (siteLimited) {
-        auto m = sites.classify(*groupToAdd->getOption());
-        auto& active = siteActive[m.site];
-        if (m.limit > 0 && active >= m.limit) {
-          A2_LOG_DEBUG(fmt("GID#%s - Site %s is at its limit %d.",
-                           GroupId::toHex(groupToAdd->getGID()).c_str(),
-                           m.site.c_str(), m.limit));
-          pending.push_back(groupToAdd);
-          continue;
-        }
-        ++active;
-      }
-      // Drop pieceStorage here because paused download holds its
-      // reference.
-      groupToAdd->dropPieceStorage();
-      configureRequestGroup(groupToAdd);
-      groupToAdd->setRequestGroupMan(this);
-      groupToAdd->setState(RequestGroup::STATE_ACTIVE);
-      ++numActive_;
-      requestGroups_.push_back(groupToAdd->getGID(), groupToAdd);
-      try {
-        auto res = createInitialCommand(groupToAdd, e);
-        ++count;
-        if (res.empty()) {
-          requestQueueCheck();
-        }
-        else {
-          e->addCommand(std::move(res));
-        }
-      }
-      catch (RecoverableException& ex) {
-        A2_LOG_ERROR_EX(EX_EXCEPTION_CAUGHT, ex);
-        A2_LOG_DEBUG("Deleting temporal commands.");
-        groupToAdd->setLastErrorCode(ex.getErrorCode(), ex.what());
-        // We add groupToAdd to e later in order to it is processed in
-        // removeStoppedGroup().
+      ++active;
+    }
+    reservedGroups_.erase(reservedGroups_.begin() + pos);
+    // Drop pieceStorage here because paused download holds its
+    // reference.
+    groupToAdd->dropPieceStorage();
+    configureRequestGroup(groupToAdd);
+    groupToAdd->setRequestGroupMan(this);
+    groupToAdd->setState(RequestGroup::STATE_ACTIVE);
+    ++numActive_;
+    requestGroups_.push_back(groupToAdd->getGID(), groupToAdd);
+    try {
+      auto res = createInitialCommand(groupToAdd, e);
+      ++count;
+      if (res.empty()) {
         requestQueueCheck();
       }
-
-      util::executeHookByOptName(groupToAdd, e->getOption(),
-                                 PREF_ON_DOWNLOAD_START);
-      notifyDownloadEvent(EVENT_ON_DOWNLOAD_START, groupToAdd);
+      else {
+        e->addCommand(std::move(res));
+      }
     }
+    catch (RecoverableException& ex) {
+      A2_LOG_ERROR_EX(EX_EXCEPTION_CAUGHT, ex);
+      A2_LOG_DEBUG("Deleting temporal commands.");
+      groupToAdd->setLastErrorCode(ex.getErrorCode(), ex.what());
+      // We add groupToAdd to e later in order to it is processed in
+      // removeStoppedGroup().
+      requestQueueCheck();
+    }
+
+    util::executeHookByOptName(groupToAdd, e->getOption(),
+                               PREF_ON_DOWNLOAD_START);
+    notifyDownloadEvent(EVENT_ON_DOWNLOAD_START, groupToAdd);
   }
-  catch (...) {
-    restorePending();
-    throw;
-  }
-  restorePending();
   if (count > 0) {
     e->setNoWait(true);
     e->setRefreshInterval(std::chrono::milliseconds(0));
