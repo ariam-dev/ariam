@@ -20,6 +20,7 @@ class RequestTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testRedirectUri2);
   CPPUNIT_TEST(testRedirectUri_supportsPersistentConnection);
   CPPUNIT_TEST(testRedirectUri_uriNormalization);
+  CPPUNIT_TEST(testRedirectUri_tooLong);
   CPPUNIT_TEST(testResetUri);
   CPPUNIT_TEST(testResetUri_supportsPersistentConnection);
   CPPUNIT_TEST(testInnerLink);
@@ -36,6 +37,7 @@ public:
   void testRedirectUri2();
   void testRedirectUri_supportsPersistentConnection();
   void testRedirectUri_uriNormalization();
+  void testRedirectUri_tooLong();
   void testResetUri();
   void testResetUri_supportsPersistentConnection();
   void testInnerLink();
@@ -261,6 +263,15 @@ void RequestTest::testRedirectUri_uriNormalization()
   CPPUNIT_ASSERT(req.redirectUri("../new2nd/bar?b"));
   CPPUNIT_ASSERT_EQUAL(std::string("http://host/redir4/new2nd/bar?b"),
                        req.getCurrentUri());
+}
+
+void RequestTest::testRedirectUri_tooLong()
+{
+  Request req;
+  CPPUNIT_ASSERT(req.setUri("http://host/dir/file"));
+  // The joined URI is http://host/dir/ followed by 65535 bytes.
+  CPPUNIT_ASSERT(!req.redirectUri(std::string(65535, 'a')));
+  CPPUNIT_ASSERT_EQUAL(1, req.getRedirectCount());
 }
 
 void RequestTest::testGetURIHost()

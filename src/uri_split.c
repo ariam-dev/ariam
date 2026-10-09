@@ -35,6 +35,7 @@
 #include "uri_split.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 typedef enum {
   URI_BEFORE_SCHEME,
@@ -82,6 +83,11 @@ int uri_split(uri_split_result* res, const char* uri)
              *last_slash = NULL, *p = uri;
   int32_t port = -1;
   uint8_t flags = 0;
+
+  /* The result keeps each field's offset and length in 16 bits. */
+  if (strlen(uri) > UINT16_MAX) {
+    return -1;
+  }
 
   for (; *p; ++p) {
     switch (state) {

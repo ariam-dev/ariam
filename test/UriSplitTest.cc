@@ -410,6 +410,13 @@ void UriSplitTest::testUriSplit_fail()
   CPPUNIT_ASSERT_EQUAL(-1, uri_split(nullptr, "http://user[::1]"));
   CPPUNIT_ASSERT_EQUAL(-1, uri_split(nullptr, "http://user[::1]x"));
   CPPUNIT_ASSERT_EQUAL(-1, uri_split(nullptr, "http://user:pass[::1]"));
+
+  // Offsets and lengths are 16 bits: 65535 bytes is the longest accepted URI.
+  std::string prefix = "http://example.com/";
+  std::string longUri = prefix + std::string(65535 - prefix.size(), 'a');
+  CPPUNIT_ASSERT_EQUAL(0, uri_split(nullptr, longUri.c_str()));
+  longUri += "a";
+  CPPUNIT_ASSERT_EQUAL(-1, uri_split(nullptr, longUri.c_str()));
 }
 
 } // namespace aria2

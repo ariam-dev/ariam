@@ -32,6 +32,7 @@ class UriTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testSetUri_usernamePassword);
   CPPUNIT_TEST(testSetUri_zeroUsername);
   CPPUNIT_TEST(testSetUri_ipv6);
+  CPPUNIT_TEST(testSetUri_tooLong);
   CPPUNIT_TEST(testInnerLink);
   CPPUNIT_TEST(testConstruct);
   CPPUNIT_TEST(testSwap);
@@ -63,6 +64,7 @@ public:
   void testSetUri_usernamePassword();
   void testSetUri_zeroUsername();
   void testSetUri_ipv6();
+  void testSetUri_tooLong();
   void testInnerLink();
   void testConstruct();
   void testSwap();
@@ -358,6 +360,19 @@ void UriTest::testSetUri_ipv6()
   CPPUNIT_ASSERT_EQUAL(std::string("/dir/"), us.dir);
   CPPUNIT_ASSERT_EQUAL(std::string("file"), us.file);
   CPPUNIT_ASSERT(us.ipv6LiteralAddress);
+}
+
+void UriTest::testSetUri_tooLong()
+{
+  UriStruct us;
+  std::string prefix = "http://example.com/";
+  std::string uri = prefix + std::string(65535 - prefix.size(), 'a');
+  CPPUNIT_ASSERT(parse(us, uri));
+  CPPUNIT_ASSERT_EQUAL(std::string("/"), us.dir);
+  CPPUNIT_ASSERT_EQUAL(65535 - prefix.size(), us.file.size());
+
+  uri += "a";
+  CPPUNIT_ASSERT(!parse(us, uri));
 }
 
 void UriTest::testInnerLink()
