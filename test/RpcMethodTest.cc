@@ -74,6 +74,7 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testTellStatus_withoutGid);
   CPPUNIT_TEST(testTellWaiting);
   CPPUNIT_TEST(testTellWaiting_fail);
+  CPPUNIT_TEST(testTellWaiting_int64Num);
   CPPUNIT_TEST(testGetVersion);
   CPPUNIT_TEST(testNoSuchMethod);
   CPPUNIT_TEST(testGatherStoppedDownload);
@@ -162,6 +163,7 @@ public:
   void testTellStatus_withoutGid();
   void testTellWaiting();
   void testTellWaiting_fail();
+  void testTellWaiting_int64Num();
   void testGetVersion();
   void testNoSuchMethod();
   void testGatherStoppedDownload();
@@ -1029,6 +1031,55 @@ void RpcMethodTest::testTellWaiting_fail()
   auto res =
       m.execute(createReq(TellWaitingRpcMethod::getMethodName()), e_.get());
   CPPUNIT_ASSERT_EQUAL(1, res.code);
+}
+
+void RpcMethodTest::testTellWaiting_int64Num()
+{
+  addUri("http://1/", e_);
+  addUri("http://2/", e_);
+  addUri("http://3/", e_);
+  auto& rgman = e_->getRequestGroupMan();
+  TellWaitingRpcMethod m;
+  auto req = createReq(TellWaitingRpcMethod::getMethodName());
+  req.params->append(Integer::g(0));
+  req.params->append(Integer::g(INT64_MAX));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  const List* resParams = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)3, resParams->size());
+  req = createReq(TellWaitingRpcMethod::getMethodName());
+  req.params->append(Integer::g(2));
+  req.params->append(Integer::g(INT64_MAX));
+  res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  resParams = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)1, resParams->size());
+  CPPUNIT_ASSERT_EQUAL(
+      GroupId::toHex(getReservedGroup(rgman.get(), 2)->getGID()),
+      getString(downcast<Dict>(resParams->get(0)), "gid"));
+  req = createReq(TellWaitingRpcMethod::getMethodName());
+  req.params->append(Integer::g(-1));
+  req.params->append(Integer::g(INT64_MAX));
+  res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  resParams = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)3, resParams->size());
+  CPPUNIT_ASSERT_EQUAL(
+      GroupId::toHex(getReservedGroup(rgman.get(), 2)->getGID()),
+      getString(downcast<Dict>(resParams->get(0)), "gid"));
+  CPPUNIT_ASSERT_EQUAL(
+      GroupId::toHex(getReservedGroup(rgman.get(), 1)->getGID()),
+      getString(downcast<Dict>(resParams->get(1)), "gid"));
+  CPPUNIT_ASSERT_EQUAL(
+      GroupId::toHex(getReservedGroup(rgman.get(), 0)->getGID()),
+      getString(downcast<Dict>(resParams->get(2)), "gid"));
+  req = createReq(TellWaitingRpcMethod::getMethodName());
+  req.params->append(Integer::g(3));
+  req.params->append(Integer::g(INT64_MAX));
+  res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  resParams = downcast<List>(res.param);
+  CPPUNIT_ASSERT_EQUAL((size_t)0, resParams->size());
 }
 
 void RpcMethodTest::testGetVersion()

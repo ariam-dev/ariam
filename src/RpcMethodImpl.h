@@ -342,11 +342,11 @@ private:
       return std::make_pair(last, last);
     }
     int64_t lastDistance;
-    if (size < offset + num) {
-      lastDistance = size;
+    if (num < size - offset) {
+      lastDistance = offset + num;
     }
     else {
-      lastDistance = offset + num;
+      lastDistance = size;
     }
     last = first;
     std::advance(first, offset);
