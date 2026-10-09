@@ -44,6 +44,7 @@
 #include "prefs.h"
 #include "SocketCore.h"
 #include "SocketRecvBuffer.h"
+#include "uri.h"
 
 namespace aria2 {
 
@@ -77,7 +78,7 @@ InitiateConnectionCommandFactory::createInitiateConnectionCommand(
   ) {
     if (req->getFile().empty()) {
       throw DL_ABORT_EX(fmt("FTP/SFTP URI %s doesn't contain file path.",
-                            req->getUri().c_str()));
+                            uri::getOrigin(req->getUri()).c_str()));
     }
     return make_unique<FtpInitiateConnectionCommand>(cuid, req, fileEntry,
                                                      requestGroup, e);

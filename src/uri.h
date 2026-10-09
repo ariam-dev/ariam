@@ -80,6 +80,12 @@ std::string getFieldString(const uri_split_result& res, int field,
 
 std::string construct(const UriStruct& us);
 
+// Origin of uri as scheme://host[:port] (RFC 6454, section 6.2) for log
+// lines: userinfo, path, query, and fragment are dropped, an IPv6
+// literal host is bracketed, and the port is shown only when it is not
+// the scheme's default. "(invalid URI)" if parse() rejects uri.
+std::string getOrigin(const std::string& uri);
+
 std::string joinUri(const std::string& baseUri, const std::string& uri);
 
 std::string joinPath(const std::string& basePath, const std::string& newPath);

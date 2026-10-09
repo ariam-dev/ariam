@@ -50,6 +50,7 @@ class HttpResponseTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testValidateResponse_chunked);
   CPPUNIT_TEST(testValidateResponse_withIfModifiedSince);
   CPPUNIT_TEST(testProcessRedirect);
+  CPPUNIT_TEST(testProcessRedirect_failedLogsOrigin);
   CPPUNIT_TEST(testRetrieveCookie);
   CPPUNIT_TEST(testSupportsPersistentConnection);
   CPPUNIT_TEST(testGetMetalinKHttpEntries);
@@ -82,6 +83,7 @@ public:
   void testValidateResponse_chunked();
   void testValidateResponse_withIfModifiedSince();
   void testProcessRedirect();
+  void testProcessRedirect_failedLogsOrigin();
   void testRetrieveCookie();
   void testSupportsPersistentConnection();
   void testGetMetalinKHttpEntries();
@@ -518,6 +520,49 @@ void HttpResponseTest::testProcessRedirect()
   }
   catch (...) {
     CPPUNIT_FAIL("DlRetryEx exception must be thrown.");
+  }
+}
+
+void HttpResponseTest::testProcessRedirect_failedLogsOrigin()
+{
+  HttpResponse httpResponse;
+
+  httpResponse.setHttpHeader(make_unique<HttpHeader>());
+
+  auto httpRequest = make_unique<HttpRequest>();
+  auto request = std::make_shared<Request>();
+  request->setUri("https://u:p@cdn.example.com:8443/a/b.bin?sig=SECRET");
+  httpRequest->setRequest(request);
+  httpResponse.setHttpRequest(std::move(httpRequest));
+
+  // An empty Location is rejected and leaves the request's URI as it
+  // is: the message carries that URI's origin.
+  httpResponse.getHttpHeader()->put(HttpHeader::LOCATION, "");
+  try {
+    httpResponse.processRedirect();
+    CPPUNIT_FAIL("DlRetryEx exception must be thrown.");
+  }
+  catch (DlRetryEx& e) {
+    CPPUNIT_ASSERT_EQUAL(std::string("CUID#0 - Redirect to "
+                                     "https://cdn.example.com:8443 failed. "
+                                     "It may not be a valid URI."),
+                         std::string(e.what()));
+  }
+
+  httpResponse.getHttpHeader()->clearField();
+
+  // A Location with an unsupported scheme is rejected: uri::parse
+  // rejects it too, so the message names no part of it.
+  httpResponse.getHttpHeader()->put(
+      HttpHeader::LOCATION, "unsupported://mirror.example.com/c/d.bin?sig=X");
+  try {
+    httpResponse.processRedirect();
+    CPPUNIT_FAIL("DlRetryEx exception must be thrown.");
+  }
+  catch (DlRetryEx& e) {
+    CPPUNIT_ASSERT_EQUAL(std::string("CUID#0 - Redirect to (invalid URI) "
+                                     "failed. It may not be a valid URI."),
+                         std::string(e.what()));
   }
 }
 

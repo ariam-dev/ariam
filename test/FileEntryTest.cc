@@ -22,6 +22,7 @@ class FileEntryTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testInsertUri);
   CPPUNIT_TEST(testRemoveUri);
   CPPUNIT_TEST(testPutBackRequest);
+  CPPUNIT_TEST(testGetDownloadName_noPath);
   CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -39,6 +40,7 @@ public:
   void testInsertUri();
   void testRemoveUri();
   void testPutBackRequest();
+  void testGetDownloadName_noPath();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(FileEntryTest);
@@ -309,6 +311,15 @@ void FileEntryTest::testPutBackRequest()
   CPPUNIT_ASSERT_EQUAL(std::string("http://localhost/aria2.zip"), uris[0]);
   CPPUNIT_ASSERT_EQUAL(std::string("http://mirror/aria2.zip"), uris[1]);
   CPPUNIT_ASSERT_EQUAL(std::string("ftp://localhost/aria2.zip"), uris[2]);
+}
+
+void FileEntryTest::testGetDownloadName_noPath()
+{
+  auto fileEntry = std::make_shared<FileEntry>();
+  CPPUNIT_ASSERT(fileEntry->addUri("https://example.org/dir/file.bin?sig=x"));
+  std::vector<std::shared_ptr<FileEntry>> fileEntries{fileEntry};
+  CPPUNIT_ASSERT(fileEntry->getPath().empty());
+  CPPUNIT_ASSERT_EQUAL(std::string("file.bin"), getDownloadName(fileEntries));
 }
 
 } // namespace aria2

@@ -162,11 +162,11 @@ void HttpResponse::processRedirect()
   if (!req->redirectUri(util::percentEncodeMini(getRedirectURI()))) {
     throw DL_RETRY_EX(fmt(
         "CUID#%" PRId64 " - Redirect to %s failed. It may not be a valid URI.",
-        cuid_, req->getCurrentUri().c_str()));
+        cuid_, uri::getOrigin(req->getCurrentUri()).c_str()));
   }
 
   A2_LOG_NOTICE(fmt(MSG_REDIRECT, cuid_,
-                    httpRequest_->getRequest()->getCurrentUri().c_str()));
+                    uri::getOrigin(req->getCurrentUri()).c_str()));
 }
 
 const std::string& HttpResponse::getRedirectURI() const

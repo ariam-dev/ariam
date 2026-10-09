@@ -422,10 +422,13 @@ public:
 #endif // ENABLE_BITTORRENT
         }
         else {
-          A2_LOG_NOTICE(
-              fmt(_("Download GID#%s not complete: %s"),
-                  GroupId::toHex(group->getGID()).c_str(),
-                  group->getDownloadContext()->getBasePath().c_str()));
+          std::string name = dctx->getBasePath();
+          if (name.empty()) {
+            name = getDownloadName(dctx->getFileEntries());
+          }
+          A2_LOG_NOTICE(fmt(_("Download GID#%s not complete: %s"),
+                            GroupId::toHex(group->getGID()).c_str(),
+                            name.c_str()));
           group->saveControlFile();
         }
       }

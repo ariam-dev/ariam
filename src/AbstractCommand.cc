@@ -347,8 +347,11 @@ bool AbstractCommand::execute()
     requestGroup_->setLastErrorCode(err.getErrorCode(), err.what());
     if (req_) {
       A2_LOG_ERROR_EX(
-          fmt(MSG_DOWNLOAD_ABORTED, getCuid(), req_->getUri().c_str()),
-          DL_ABORT_EX2(fmt("URI=%s", req_->getCurrentUri().c_str()), err));
+          fmt(MSG_DOWNLOAD_ABORTED, getCuid(),
+              uri::getOrigin(req_->getUri()).c_str()),
+          DL_ABORT_EX2(
+              fmt("URI=%s", uri::getOrigin(req_->getCurrentUri()).c_str()),
+              err));
       fileEntry_->addURIResult(req_->getUri(), err.getErrorCode());
       if (err.getErrorCode() == error_code::CANNOT_RESUME) {
         requestGroup_->increaseResumeFailureCount();
@@ -374,8 +377,9 @@ bool AbstractCommand::execute()
     bool isAbort = maxTries != 0 && req_->getTryCount() >= maxTries;
     if (isAbort) {
       A2_LOG_INFO(fmt(MSG_MAX_TRY, getCuid(), req_->getTryCount()));
-      A2_LOG_ERROR_EX(
-          fmt(MSG_DOWNLOAD_ABORTED, getCuid(), req_->getUri().c_str()), err);
+      A2_LOG_ERROR_EX(fmt(MSG_DOWNLOAD_ABORTED, getCuid(),
+                          uri::getOrigin(req_->getUri()).c_str()),
+                      err);
       fileEntry_->addURIResult(req_->getUri(), err.getErrorCode());
       requestGroup_->setLastErrorCode(err.getErrorCode(), err.what());
       if (err.getErrorCode() == error_code::CANNOT_RESUME) {
@@ -399,8 +403,11 @@ bool AbstractCommand::execute()
     requestGroup_->setLastErrorCode(err.getErrorCode(), err.what());
     if (req_) {
       A2_LOG_ERROR_EX(
-          fmt(MSG_DOWNLOAD_ABORTED, getCuid(), req_->getUri().c_str()),
-          DL_ABORT_EX2(fmt("URI=%s", req_->getCurrentUri().c_str()), err));
+          fmt(MSG_DOWNLOAD_ABORTED, getCuid(),
+              uri::getOrigin(req_->getUri()).c_str()),
+          DL_ABORT_EX2(
+              fmt("URI=%s", uri::getOrigin(req_->getCurrentUri()).c_str()),
+              err));
       fileEntry_->addURIResult(req_->getUri(), err.getErrorCode());
     }
     else {

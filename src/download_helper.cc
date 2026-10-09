@@ -63,6 +63,7 @@
 #include "SegList.h"
 #include "download_handlers.h"
 #include "SimpleRandomizer.h"
+#include "uri.h"
 #ifdef ENABLE_BITTORRENT
 #  include "bittorrent_helper.h"
 #  include "BtConstants.h"
@@ -448,10 +449,11 @@ public:
 #endif // ENABLE_METALINK
     else {
       if (throwOnError_) {
-        throw DL_ABORT_EX(fmt(MSG_UNRECOGNIZED_URI, uri.c_str()));
+        throw DL_ABORT_EX(
+            fmt(MSG_UNRECOGNIZED_URI, uri::getOrigin(uri).c_str()));
       }
       else {
-        A2_LOG_ERROR(fmt(MSG_UNRECOGNIZED_URI, uri.c_str()));
+        A2_LOG_ERROR(fmt(MSG_UNRECOGNIZED_URI, uri::getOrigin(uri).c_str()));
       }
     }
   }

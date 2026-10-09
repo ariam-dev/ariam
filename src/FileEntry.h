@@ -330,6 +330,15 @@ void writeFilePath(InputIterator first, InputIterator last, std::ostream& o,
   }
 }
 
+// Display name of a download whose files are fileEntries: the basename
+// of the first file's path or, while that path is not determined, the
+// file name aria2 derives from the first file's first URI; empty if
+// neither gives one. Only the first FileEntry is used: an HTTP/FTP
+// download has exactly one, and BitTorrent and Metalink are compiled out
+// in ariam.
+std::string getDownloadName(
+    const std::vector<std::shared_ptr<FileEntry>>& fileEntries);
+
 } // namespace aria2
 
 #endif // D_FILE_ENTRY_H

@@ -208,6 +208,29 @@ std::string construct(const UriStruct& us)
   return res;
 }
 
+std::string getOrigin(const std::string& uri)
+{
+  UriStruct us;
+  if (!parse(us, uri)) {
+    return "(invalid URI)";
+  }
+  std::string res = us.protocol;
+  res += "://";
+  if (us.ipv6LiteralAddress) {
+    res += "[";
+    res += us.host;
+    res += "]";
+  }
+  else {
+    res += us.host;
+  }
+  // parse() fills in the scheme's default port when uri has none.
+  if (us.port != getDefaultPort(us.protocol)) {
+    res += fmt(":%u", us.port);
+  }
+  return res;
+}
+
 namespace {
 enum { NPATH_START, NPATH_SLASH, NPATH_SDOT, NPATH_DDOT, NPATH_PATHCOMP };
 }

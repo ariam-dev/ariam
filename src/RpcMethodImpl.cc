@@ -73,9 +73,6 @@
 #include "OpenedFileCounter.h"
 #include "SiteConcurrencyFile.h"
 #include "SiteConcurrency.h"
-#include "File.h"
-#include "Request.h"
-#include "uri.h"
 #include "A2STR.h"
 #ifdef ENABLE_BITTORRENT
 #  include "bittorrent_helper.h"
@@ -638,38 +635,6 @@ SiteConcurrency createSiteConcurrency(DownloadEngine* e,
   }
   return SiteConcurrency({}, 0);
 }
-
-namespace {
-// Basename of the first file's path; before the path is determined,
-// the file name aria2 derives from the first URI. Only the first
-// FileEntry is used: an HTTP/FTP download has exactly one, and
-// BitTorrent and Metalink are compiled out in ariam.
-std::string getDownloadName(
-    const std::vector<std::shared_ptr<FileEntry>>& fileEntries)
-{
-  if (fileEntries.empty()) {
-    return A2STR::NIL;
-  }
-  const auto& fe = fileEntries.front();
-  if (!fe->getPath().empty()) {
-    return File(fe->getPath()).getBasename();
-  }
-  // The order of files[].uris.
-  const auto& spent = fe->getSpentUris();
-  const auto& remaining = fe->getRemainingUris();
-  const std::string* uri = !spent.empty()       ? &spent.front()
-                           : !remaining.empty() ? &remaining.front()
-                                                : nullptr;
-  uri::UriStruct us;
-  if (!uri || !uri::parse(us, *uri)) {
-    return A2STR::NIL;
-  }
-  return util::createSafePath(
-      us.file.empty() ? Request::DEFAULT_FILE
-                      : util::percentDecode(std::begin(us.file),
-                                            std::end(us.file)));
-}
-} // namespace
 
 void gatherProgressCommon(Dict* entryDict,
                           const std::shared_ptr<RequestGroup>& group,

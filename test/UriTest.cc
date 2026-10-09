@@ -35,6 +35,7 @@ class UriTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testSetUri_tooLong);
   CPPUNIT_TEST(testInnerLink);
   CPPUNIT_TEST(testConstruct);
+  CPPUNIT_TEST(testGetOrigin);
   CPPUNIT_TEST(testSwap);
   CPPUNIT_TEST(testJoinUri);
   CPPUNIT_TEST(testJoinPath);
@@ -67,6 +68,7 @@ public:
   void testSetUri_tooLong();
   void testInnerLink();
   void testConstruct();
+  void testGetOrigin();
   void testSwap();
   void testJoinUri();
   void testJoinPath();
@@ -458,6 +460,24 @@ void UriTest::testConstruct()
     CPPUNIT_ASSERT_EQUAL(std::string("ftp://user:passwd%40@host/dir/file"),
                          construct(us));
   }
+}
+
+void UriTest::testGetOrigin()
+{
+  CPPUNIT_ASSERT_EQUAL(std::string("https://cdn.example.com"),
+                       getOrigin("https://u:p@cdn.example.com/a/b?sig=x#f"));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://example.com:8080"),
+                       getOrigin("http://example.com:8080/x"));
+  CPPUNIT_ASSERT_EQUAL(std::string("https://example.com"),
+                       getOrigin("https://example.com:443/"));
+  CPPUNIT_ASSERT_EQUAL(std::string("http://[::1]:6800"),
+                       getOrigin("http://[::1]:6800/"));
+  CPPUNIT_ASSERT_EQUAL(std::string("ftp://ftp.example.com"),
+                       getOrigin("ftp://user@ftp.example.com:21/pub/f.bin"));
+  CPPUNIT_ASSERT_EQUAL(std::string("(invalid URI)"), getOrigin("not a uri"));
+  // No default port for the scheme and none given.
+  CPPUNIT_ASSERT_EQUAL(std::string("(invalid URI)"),
+                       getOrigin("foo://example.com/a?sig=x"));
 }
 
 void UriTest::testSwap()

@@ -613,4 +613,30 @@ void writeFilePath(std::ostream& o, const std::shared_ptr<FileEntry>& entry,
   }
 }
 
+std::string getDownloadName(
+    const std::vector<std::shared_ptr<FileEntry>>& fileEntries)
+{
+  if (fileEntries.empty()) {
+    return A2STR::NIL;
+  }
+  const auto& fe = fileEntries.front();
+  if (!fe->getPath().empty()) {
+    return File(fe->getPath()).getBasename();
+  }
+  // The order of files[].uris.
+  const auto& spent = fe->getSpentUris();
+  const auto& remaining = fe->getRemainingUris();
+  const std::string* uri = !spent.empty()       ? &spent.front()
+                           : !remaining.empty() ? &remaining.front()
+                                                : nullptr;
+  uri::UriStruct us;
+  if (!uri || !uri::parse(us, *uri)) {
+    return A2STR::NIL;
+  }
+  return util::createSafePath(
+      us.file.empty() ? Request::DEFAULT_FILE
+                      : util::percentDecode(std::begin(us.file),
+                                            std::end(us.file)));
+}
+
 } // namespace aria2
