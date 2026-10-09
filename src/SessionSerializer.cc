@@ -109,11 +109,14 @@ bool writeOptionLine(IOFile& fp, PrefPtr pref, const std::string& val)
 } // namespace
 
 namespace {
-bool writeOption(IOFile& fp, const std::shared_ptr<Option>& op)
+bool writeOption(IOFile& fp, const std::shared_ptr<Option>& op, PrefPtr skip)
 {
   const std::shared_ptr<OptionParser>& oparser = OptionParser::getInstance();
   for (size_t i = 1, len = option::countOption(); i < len; ++i) {
     PrefPtr pref = option::i2p(i);
+    if (pref == skip) {
+      continue;
+    }
     const OptionHandler* h = oparser->find(pref);
     if (h && h->getInitialOption() && op->definedLocal(pref)) {
       if (h->getCumulative()) {
@@ -177,6 +180,27 @@ bool writeUri(IOFile& fp, InputIterator first, InputIterator last,
 }
 } // namespace
 
+namespace {
+// Returns the out option value that names path relative to dir, or
+// an empty string if no out line reads back as path. On load,
+// createRequestGroup() sets the path to util::applyDir(dir, out);
+// the session parser reads one line per option and strips whitespace
+// around the value, and the out option handler expands ${HOME}.
+std::string getOutForPath(const std::string& dir, const std::string& path)
+{
+  const auto prefix = util::applyDir(dir, "");
+  if (path.size() <= prefix.size() || !util::startsWith(path, prefix)) {
+    return "";
+  }
+  auto out = path.substr(prefix.size());
+  if (out.find('\n') != std::string::npos || util::strip(out) != out ||
+      out.find("${HOME}") != std::string::npos) {
+    return "";
+  }
+  return out;
+}
+} // namespace
+
 // The downloads whose followedBy() is empty is persisted with its
 // GID without no problem. For other cases, there are several patterns.
 //
@@ -200,6 +224,9 @@ bool writeDownloadResult(IOFile& fp, std::set<a2_gid_t>& metainfoCache,
   if (dr->belongsTo != 0 || (mi && mi->dataOnly()) || !dr->followedBy.empty()) {
     return true;
   }
+  // The resolved file name, saved as out so that the download owns it
+  // from start-up after a restart.
+  std::string out;
   if (!mi) {
     // With --force-save option, same gid may be saved twice. (e.g.,
     // Downloading .meta4 followed by its content download. First
@@ -242,6 +269,7 @@ bool writeDownloadResult(IOFile& fp, std::set<a2_gid_t>& metainfoCache,
     if (!writeOptionLine(fp, PREF_GID, dr->gid->toHex())) {
       return false;
     }
+    out = getOutForPath(dr->dir, file->getPath());
   }
   else {
     if (metainfoCache.count(mi->getGID()) != 0) {
@@ -270,7 +298,11 @@ bool writeDownloadResult(IOFile& fp, std::set<a2_gid_t>& metainfoCache,
     }
   }
 
-  return writeOption(fp, dr->option);
+  if (out.empty()) {
+    return writeOption(fp, dr->option, nullptr);
+  }
+  return writeOptionLine(fp, PREF_OUT, out) &&
+         writeOption(fp, dr->option, PREF_OUT);
 }
 } // namespace
 

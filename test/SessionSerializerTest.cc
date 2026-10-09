@@ -1,7 +1,9 @@
 #include "SessionSerializer.h"
 
+#include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <map>
 
 #include <cppunit/extensions/HelperMacros.h>
 
@@ -21,6 +23,7 @@
 #include "DownloadEngine.h"
 #include "SiteConcurrency.h"
 #include "UriListParser.h"
+#include "util.h"
 
 namespace aria2 {
 
@@ -30,15 +33,63 @@ class SessionSerializerTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testSave);
   CPPUNIT_TEST(testSaveSkipsErrorDownload);
   CPPUNIT_TEST(testSaveSiteHint);
+  CPPUNIT_TEST(testSaveOut);
+  CPPUNIT_TEST(testSaveOutNotReadBack);
+  CPPUNIT_TEST(testLoadOut);
   CPPUNIT_TEST_SUITE_END();
 
 public:
   void testSave();
   void testSaveSkipsErrorDownload();
   void testSaveSiteHint();
+  void testSaveOut();
+  void testSaveOutNotReadBack();
+  void testLoadOut();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(SessionSerializerTest);
+
+namespace {
+std::map<std::string, std::vector<std::string>>
+readEntries(const std::string& filename)
+{
+  std::map<std::string, std::vector<std::string>> res;
+  std::ifstream ss(filename.c_str(), std::ios::binary);
+  std::string line;
+  std::string uri;
+  while (std::getline(ss, line)) {
+    if (!line.empty() && line[0] == ' ') {
+      res[uri].push_back(line);
+    }
+    else {
+      uri = line;
+      res[uri];
+    }
+  }
+  return res;
+}
+
+std::vector<std::string> outLines(const std::vector<std::string>& lines)
+{
+  std::vector<std::string> res;
+  for (const auto& line : lines) {
+    if (line.compare(0, 5, " out=") == 0) {
+      res.push_back(line);
+    }
+  }
+  return res;
+}
+
+void saveGroups(const std::vector<std::shared_ptr<RequestGroup>>& groups,
+                const std::string& filename)
+{
+  std::shared_ptr<Option> option(new Option());
+  option->put(PREF_MAX_DOWNLOAD_RESULT, "10");
+  RequestGroupMan rgman{groups, 1, option.get()};
+  SessionSerializer s(&rgman);
+  CPPUNIT_ASSERT(s.save(filename));
+}
+} // namespace
 
 void SessionSerializerTest::testSave()
 {
@@ -223,6 +274,93 @@ void SessionSerializerTest::testSaveSiteHint()
   CPPUNIT_ASSERT_EQUAL(gid, GroupId::toHex(restored[0]->getGID()));
   CPPUNIT_ASSERT_EQUAL(hint, restored[0]->getOption()->get(PREF_SITE_HINT));
   CPPUNIT_ASSERT_EQUAL(site, sites.classify(*restored[0]->getOption()).site);
+}
+
+void SessionSerializerTest::testSaveOut()
+{
+  const std::string dir = A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_out";
+  auto option = std::make_shared<Option>();
+  option->put(PREF_DIR, dir);
+  auto renamedOption = util::copy(option);
+  renamedOption->put(PREF_OUT, "x.bin");
+  std::vector<std::shared_ptr<RequestGroup>> groups{
+      createRequestGroup(0, 0, dir + "/a.bin", "http://host/a",
+                         util::copy(option)),
+      // The response path replaces the out option.
+      createRequestGroup(0, 0, dir + "/x.1.bin", "http://host/x",
+                         renamedOption)};
+  std::string filename =
+      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testSaveOut";
+  saveGroups(groups, filename);
+  auto entries = readEntries(filename);
+  CPPUNIT_ASSERT_EQUAL((size_t)2, entries.size());
+  auto outs = outLines(entries["http://host/a\t"]);
+  CPPUNIT_ASSERT_EQUAL((size_t)1, outs.size());
+  CPPUNIT_ASSERT_EQUAL(std::string(" out=a.bin"), outs[0]);
+  outs = outLines(entries["http://host/x\t"]);
+  CPPUNIT_ASSERT_EQUAL((size_t)1, outs.size());
+  CPPUNIT_ASSERT_EQUAL(std::string(" out=x.1.bin"), outs[0]);
+}
+
+void SessionSerializerTest::testSaveOutNotReadBack()
+{
+  const std::string dir = A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_out";
+  auto option = std::make_shared<Option>();
+  option->put(PREF_DIR, dir);
+  // No path; paths whose name the session parser strips or the out
+  // option expands.
+  std::vector<std::shared_ptr<RequestGroup>> groups{
+      createRequestGroup(0, 0, "", "http://host/none", util::copy(option)),
+      createRequestGroup(0, 0, dir + "/ a.bin", "http://host/lead",
+                         util::copy(option)),
+      createRequestGroup(0, 0, dir + "/a.bin ", "http://host/trail",
+                         util::copy(option)),
+      createRequestGroup(0, 0, dir + "/${HOME}.bin", "http://host/home",
+                         util::copy(option))};
+  std::string filename =
+      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testSaveOutNotReadBack";
+  saveGroups(groups, filename);
+  auto entries = readEntries(filename);
+  CPPUNIT_ASSERT_EQUAL((size_t)4, entries.size());
+  for (const auto& entry : entries) {
+    CPPUNIT_ASSERT(outLines(entry.second).empty());
+    CPPUNIT_ASSERT(std::find(std::begin(entry.second), std::end(entry.second),
+                             " dir=" + dir) != std::end(entry.second));
+  }
+}
+
+void SessionSerializerTest::testLoadOut()
+{
+  const std::string dir = A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_out";
+  const std::string path = dir + "/a.bin";
+  std::string filename =
+      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testLoadOut";
+  {
+    auto option = std::make_shared<Option>();
+    option->put(PREF_DIR, dir);
+    saveGroups({createRequestGroup(0, 0, path, "http://host/a", option)},
+               filename);
+  }
+  // The saved download is gone, so its GID is free for the restored
+  // one, as at a restart.
+  UriListParser parser(filename);
+  std::vector<std::shared_ptr<RequestGroup>> restored;
+  Option templateOption;
+  CPPUNIT_ASSERT(createRequestGroupFromUriListParser(restored, &templateOption,
+                                                     &parser));
+  CPPUNIT_ASSERT_EQUAL((size_t)1, restored.size());
+  CPPUNIT_ASSERT_EQUAL(path, restored[0]->getFirstFilePath());
+
+  // Before any response, the restored download owns its path while
+  // waiting and while paused.
+  auto other = createRequestGroup(0, 0, path, "http://host/b",
+                                  std::make_shared<Option>());
+  std::shared_ptr<Option> globalOption(new Option());
+  globalOption->put(PREF_MAX_DOWNLOAD_RESULT, "10");
+  RequestGroupMan rgman{restored, 1, globalOption.get()};
+  CPPUNIT_ASSERT(rgman.isFileOwned(path, other.get()));
+  restored[0]->setPauseRequested(true);
+  CPPUNIT_ASSERT(rgman.isFileOwned(path, other.get()));
 }
 
 } // namespace aria2
