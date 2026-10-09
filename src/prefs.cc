@@ -232,6 +232,8 @@ PrefPtr PREF_SITE_CONCURRENT = makePref("site-concurrent");
 PrefPtr PREF_SITE_CONCURRENT_DEFAULT = makePref("site-concurrent-default");
 // value: string that your file system recognizes as a file name.
 PrefPtr PREF_SITE_CONCURRENT_FILE = makePref("site-concurrent-file");
+// value: URI
+PrefPtr PREF_SITE_HINT = makePref("site-hint");
 // value: true | false
 PrefPtr PREF_FORCE_SEQUENTIAL = makePref("force-sequential");
 // value: true | false

@@ -979,7 +979,7 @@ void gatherStoppedDownload(Dict* entryDict,
     entryDict->put(KEY_NAME, getDownloadName(ds->fileEntries));
   }
   if (requested_key(keys, KEY_SITE)) {
-    // Referer from the download's option; site list from the engine's.
+    // Site source from the download's option; site list from the engine's.
     entryDict->put(KEY_SITE,
                    ds->option ? sites.classify(*ds->option).site : SITE_NONE);
   }

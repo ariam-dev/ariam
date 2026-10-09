@@ -46,6 +46,8 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testAddUri_withBadOption);
   CPPUNIT_TEST(testAddUri_withPosition);
   CPPUNIT_TEST(testAddUri_withBadPosition);
+  CPPUNIT_TEST(testAddUri_withSiteHint);
+  CPPUNIT_TEST(testAddUri_withBadSiteHint);
 #ifdef ENABLE_BITTORRENT
   CPPUNIT_TEST(testAddTorrent);
   CPPUNIT_TEST(testAddTorrent_withoutTorrent);
@@ -64,6 +66,7 @@ class RpcMethodTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testChangeOption_withNotAllowedOption);
   CPPUNIT_TEST(testChangeOption_withoutGid);
   CPPUNIT_TEST(testChangeOption_siteOfWaiting);
+  CPPUNIT_TEST(testChangeOption_siteHint);
   CPPUNIT_TEST(testChangeGlobalOption);
   CPPUNIT_TEST(testChangeGlobalOption_raiseSiteLimit);
   CPPUNIT_TEST(testChangeGlobalOption_withBadOption);
@@ -131,6 +134,8 @@ public:
   void testAddUri_withBadOption();
   void testAddUri_withPosition();
   void testAddUri_withBadPosition();
+  void testAddUri_withSiteHint();
+  void testAddUri_withBadSiteHint();
 #ifdef ENABLE_BITTORRENT
   void testAddTorrent();
   void testAddTorrent_withoutTorrent();
@@ -149,6 +154,7 @@ public:
   void testChangeOption_withNotAllowedOption();
   void testChangeOption_withoutGid();
   void testChangeOption_siteOfWaiting();
+  void testChangeOption_siteHint();
   void testChangeGlobalOption();
   void testChangeGlobalOption_raiseSiteLimit();
   void testChangeGlobalOption_withBadOption();
@@ -1347,6 +1353,93 @@ void RpcMethodTest::testTellStatus_siteAndName()
   entry = downcast<Dict>(list->get(0));
   CPPUNIT_ASSERT_EQUAL((size_t)1, entry->size());
   CPPUNIT_ASSERT_EQUAL(std::string("path"), getStringValue(entry, "name"));
+}
+
+void RpcMethodTest::testAddUri_withSiteHint()
+{
+  const std::string hint = "https://Members.Example.co.uk/x";
+  AddUriRpcMethod addUriMethod;
+  auto addReq = createReq(AddUriRpcMethod::getMethodName());
+  auto urisParam = List::g();
+  urisParam->append("http://192.0.2.1/f.bin");
+  addReq.params->append(std::move(urisParam));
+  auto opt = Dict::g();
+  opt->put(PREF_SITE_HINT->k, hint);
+  addReq.params->append(std::move(opt));
+  auto addRes = addUriMethod.execute(std::move(addReq), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, addRes.code);
+  auto gid = downcast<String>(addRes.param)->s();
+  a2_gid_t n;
+  CPPUNIT_ASSERT_EQUAL(0, GroupId::toNumericId(n, gid.c_str()));
+  auto group = findReservedGroup(e_->getRequestGroupMan().get(), n);
+  CPPUNIT_ASSERT(group);
+  CPPUNIT_ASSERT_EQUAL(hint, group->getOption()->get(PREF_SITE_HINT));
+  CPPUNIT_ASSERT(group->getOption()->blank(PREF_HEADER));
+  CPPUNIT_ASSERT(group->getOption()->blank(PREF_REFERER));
+
+  TellStatusRpcMethod m;
+  auto req = createReq(TellStatusRpcMethod::getMethodName());
+  req.params->append(gid);
+  req.params->append(createKeys({"site"}));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT_EQUAL(std::string("example.co.uk"),
+                       getStringValue(downcast<Dict>(res.param), "site"));
+}
+
+void RpcMethodTest::testAddUri_withBadSiteHint()
+{
+  AddUriRpcMethod m;
+  // No host; a newline that would add a session option line; a
+  // trailing space that the session reader would strip; longer than
+  // 65535 bytes.
+  auto tooLong = std::string("https://example.com/") + std::string(65535, 'a');
+  CPPUNIT_ASSERT_EQUAL((size_t)65555, tooLong.size());
+  for (const auto& hint :
+       {std::string("https:///path"),
+        std::string("https://example.com/a\n referer=https://example.com/"),
+        std::string("https://example.com/ "), tooLong}) {
+    auto req = createReq(AddUriRpcMethod::getMethodName());
+    auto urisParam = List::g();
+    urisParam->append("http://localhost/");
+    req.params->append(std::move(urisParam));
+    auto opt = Dict::g();
+    opt->put(PREF_SITE_HINT->k, hint);
+    req.params->append(std::move(opt));
+    auto res = m.execute(std::move(req), e_.get());
+    CPPUNIT_ASSERT_EQUAL(1, res.code);
+  }
+  CPPUNIT_ASSERT_EQUAL((size_t)0,
+                       e_->getRequestGroupMan()->getReservedGroups().size());
+}
+
+void RpcMethodTest::testChangeOption_siteHint()
+{
+  auto option = util::copy(option_);
+  option->put(PREF_SITE_HINT, "https://a.test/");
+  auto group = std::make_shared<RequestGroup>(GroupId::create(), option);
+  e_->getRequestGroupMan()->addReservedGroup(group);
+
+  // changeOption and changeGlobalOption ignore it without an error.
+  ChangeOptionRpcMethod m;
+  auto req = createReq(ChangeOptionRpcMethod::getMethodName());
+  req.params->append(GroupId::toHex(group->getGID()));
+  auto opt = Dict::g();
+  opt->put(PREF_SITE_HINT->k, "https://b.test/");
+  req.params->append(std::move(opt));
+  auto res = m.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT_EQUAL(std::string("https://a.test/"),
+                       group->getOption()->get(PREF_SITE_HINT));
+
+  ChangeGlobalOptionRpcMethod gm;
+  req = createReq(ChangeGlobalOptionRpcMethod::getMethodName());
+  opt = Dict::g();
+  opt->put(PREF_SITE_HINT->k, "https://b.test/");
+  req.params->append(std::move(opt));
+  res = gm.execute(std::move(req), e_.get());
+  CPPUNIT_ASSERT_EQUAL(0, res.code);
+  CPPUNIT_ASSERT(!e_->getOption()->defined(PREF_SITE_HINT));
 }
 
 namespace {

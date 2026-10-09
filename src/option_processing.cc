@@ -60,6 +60,7 @@
 #include "console.h"
 #include "array_fun.h"
 #include "LogFactory.h"
+#include "SiteConcurrency.h"
 #include "SiteConcurrencyFile.h"
 #include "StatusPage.h"
 #ifndef HAVE_DAEMON
@@ -318,6 +319,7 @@ error_code::Value option_processing(Option& op, bool standalone,
   }
   try {
     status_page::validateOptions(op);
+    SiteConcurrency::validateGlobalOptions(op);
   }
   catch (Exception& e) {
     global::cerr()->printf("%s", e.stackTrace().c_str());

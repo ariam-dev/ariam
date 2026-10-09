@@ -17,6 +17,8 @@
 #include "AuthConfig.h"
 #include "TestUtil.h"
 #include "MessageDigest.h"
+#include "FileEntry.h"
+#include "InorderURISelector.h"
 
 namespace aria2 {
 
@@ -47,6 +49,7 @@ class HttpRequestTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testScopeCredentialHeaders_headerNames);
   CPPUNIT_TEST(testScopeCredentialHeaders_unparsableUri);
   CPPUNIT_TEST(testCreateRequest_credentialScope);
+  CPPUNIT_TEST(testCreateRequest_siteHint);
   CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -85,6 +88,7 @@ public:
   void testScopeCredentialHeaders_headerNames();
   void testScopeCredentialHeaders_unparsableUri();
   void testCreateRequest_credentialScope();
+  void testCreateRequest_siteHint();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(HttpRequestTest);
@@ -1176,6 +1180,40 @@ void HttpRequestTest::testCreateRequest_credentialScope()
     CPPUNIT_ASSERT(has("Referer: https://www.example.com/page"));
     CPPUNIT_ASSERT(has("X-Foo: bar"));
   }
+}
+
+void HttpRequestTest::testCreateRequest_siteHint()
+{
+  // The Request and the header lines come from the download's option as
+  // CreateRequestCommand and HttpRequestCommand take them.
+  const std::string hint = "https://members.example.co.uk/page";
+  option_->put(PREF_SITE_HINT, hint);
+  auto fileEntry = std::make_shared<FileEntry>(
+      "file", 10_m, 0,
+      std::vector<std::string>{"http://dl.example.net/file.zip"});
+  InorderURISelector selector{};
+  std::vector<std::pair<size_t, std::string>> usedHosts;
+  auto request = fileEntry->getRequest(&selector, false, usedHosts,
+                                       option_->get(PREF_REFERER));
+  CPPUNIT_ASSERT(request);
+  CPPUNIT_ASSERT(request->getReferer().empty());
+
+  HttpRequest httpRequest;
+  httpRequest.disableContentEncoding();
+  httpRequest.setRequest(request);
+  httpRequest.setAuthConfigFactory(authConfigFactory_.get());
+  httpRequest.setOption(option_.get());
+  httpRequest.setNoWantDigest(true);
+  httpRequest.addHeader(
+      scopeCredentialHeaders(option_->get(PREF_HEADER), *request));
+
+  auto text = httpRequest.createRequest();
+  CPPUNIT_ASSERT_MESSAGE(text, text.find(hint) == std::string::npos);
+  CPPUNIT_ASSERT_MESSAGE(text, text.find("members.example.co.uk") ==
+                                   std::string::npos);
+  auto lower = text;
+  util::lowercase(lower);
+  CPPUNIT_ASSERT_MESSAGE(text, lower.find("referer") == std::string::npos);
 }
 
 } // namespace aria2

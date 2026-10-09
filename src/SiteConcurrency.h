@@ -45,7 +45,7 @@ namespace aria2 {
 class Option;
 class DownloadEngine;
 
-// Site of a download that has no referer.
+// Site of a download whose source gives no host.
 extern const std::string SITE_NONE;
 
 // One entry of the site-concurrent option.
@@ -71,10 +71,11 @@ struct SiteMatch {
   int limit;
 };
 
-// A download's site comes from the referer in its own option. The site
-// list comes from the engine's global option, never from a download's
-// option copy, so that changing site-concurrent reclassifies queued
-// downloads.
+// A download's site comes from its own option (a non-empty
+// PREF_SITE_HINT, then the first non-empty Referer line in PREF_HEADER,
+// then PREF_REFERER). The site list comes from the engine's global
+// option, never from a download's option copy, so that changing
+// site-concurrent reclassifies queued downloads.
 class SiteConcurrency {
 public:
   // Reads the site options of the global option of e. Throws DlAbortEx
@@ -102,8 +103,13 @@ public:
   // Formats sites as a site-concurrent value parseSites accepts.
   static std::string formatSites(const std::vector<SiteLimit>& sites);
 
-  // Normalized referer host, or empty string if there is none.
-  static std::string getRefererHost(const Option& downloadOption);
+  // Normalized host of the download's site source, or empty string if it
+  // has none.
+  static std::string getSourceHost(const Option& downloadOption);
+
+  // Throws DlAbortEx if option, the global option, defines
+  // PREF_SITE_HINT: the hint is per download only.
+  static void validateGlobalOptions(const Option& option);
 
   static std::string normalizeHost(std::string host);
 

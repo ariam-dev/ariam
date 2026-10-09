@@ -160,7 +160,7 @@ SiteConcurrency::SiteConcurrency(std::vector<SiteLimit> sites,
 
 SiteMatch SiteConcurrency::classify(const Option& downloadOption) const
 {
-  return matchHost(getRefererHost(downloadOption));
+  return matchHost(getSourceHost(downloadOption));
 }
 
 SiteMatch SiteConcurrency::matchHost(const std::string& host) const
@@ -234,8 +234,12 @@ std::string SiteConcurrency::formatSites(const std::vector<SiteLimit>& sites)
   return res;
 }
 
-std::string SiteConcurrency::getRefererHost(const Option& downloadOption)
+std::string SiteConcurrency::getSourceHost(const Option& downloadOption)
 {
+  const auto& hint = downloadOption.get(PREF_SITE_HINT);
+  if (!hint.empty()) {
+    return getUriHost(hint);
+  }
   const auto& headers = downloadOption.get(PREF_HEADER);
   std::vector<std::string> lines;
   util::split(std::begin(headers), std::end(headers),
@@ -253,6 +257,15 @@ std::string SiteConcurrency::getRefererHost(const Option& downloadOption)
     return std::string();
   }
   return getUriHost(referer);
+}
+
+void SiteConcurrency::validateGlobalOptions(const Option& option)
+{
+  if (option.defined(PREF_SITE_HINT)) {
+    throw DL_ABORT_EX("--site-hint is a per-download option: set it in the "
+                      "aria2.addUri options, not in the configuration file "
+                      "or on the command line.");
+  }
 }
 
 std::string SiteConcurrency::normalizeHost(std::string host)

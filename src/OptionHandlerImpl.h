@@ -281,6 +281,19 @@ public:
   virtual std::string createPossibleValuesString() const CXX11_OVERRIDE;
 };
 
+// Accepts an empty value, or a URI with a host and no space or control
+// character, and stores it unchanged.
+class SiteHintOptionHandler : public AbstractOptionHandler {
+public:
+  SiteHintOptionHandler(PrefPtr pref, const char* description = NO_DESCRIPTION,
+                        const std::string& defaultValue = NO_DEFAULT_VALUE,
+                        char shortName = 0);
+  virtual ~SiteHintOptionHandler();
+  virtual void parseArg(Option& option,
+                        const std::string& optarg) const CXX11_OVERRIDE;
+  virtual std::string createPossibleValuesString() const CXX11_OVERRIDE;
+};
+
 // This class is used to deprecate option and optionally handle its
 // option value using replacing option.
 class DeprecatedOptionHandler : public OptionHandler {

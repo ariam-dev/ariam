@@ -19,6 +19,8 @@
 #include "FileEntry.h"
 #include "SelectEventPoll.h"
 #include "DownloadEngine.h"
+#include "SiteConcurrency.h"
+#include "UriListParser.h"
 
 namespace aria2 {
 
@@ -27,11 +29,13 @@ class SessionSerializerTest : public CppUnit::TestFixture {
   CPPUNIT_TEST_SUITE(SessionSerializerTest);
   CPPUNIT_TEST(testSave);
   CPPUNIT_TEST(testSaveSkipsErrorDownload);
+  CPPUNIT_TEST(testSaveSiteHint);
   CPPUNIT_TEST_SUITE_END();
 
 public:
   void testSave();
   void testSaveSkipsErrorDownload();
+  void testSaveSiteHint();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(SessionSerializerTest);
@@ -172,6 +176,53 @@ void SessionSerializerTest::testSaveSkipsErrorDownload()
   CPPUNIT_ASSERT_EQUAL(std::string(" pause=true"), line);
   std::getline(ss, line);
   CPPUNIT_ASSERT(!ss);
+}
+
+void SessionSerializerTest::testSaveSiteHint()
+{
+  const std::string hint = "https://Members.Example.co.uk/x";
+  SiteConcurrency sites({}, 0);
+  std::string filename =
+      A2_TEST_OUT_DIR "/aria2_SessionSerializerTest_testSaveSiteHint";
+  std::string gid;
+  std::string site;
+  {
+    auto option = std::make_shared<Option>();
+    option->put(PREF_SITE_HINT, hint);
+    std::vector<std::shared_ptr<RequestGroup>> groups{
+        createRequestGroup(0, 0, "waiting", "http://waiting", option)};
+    gid = GroupId::toHex(groups[0]->getGID());
+    site = sites.classify(*groups[0]->getOption()).site;
+    CPPUNIT_ASSERT_EQUAL(std::string("example.co.uk"), site);
+    std::shared_ptr<Option> globalOption(new Option());
+    globalOption->put(PREF_MAX_DOWNLOAD_RESULT, "10");
+    RequestGroupMan rgman{groups, 1, globalOption.get()};
+    SessionSerializer s(&rgman);
+    CPPUNIT_ASSERT(s.save(filename));
+  }
+  {
+    std::ifstream ss(filename.c_str(), std::ios::binary);
+    std::string line;
+    std::getline(ss, line);
+    CPPUNIT_ASSERT_EQUAL(std::string("http://waiting\t"), line);
+    std::getline(ss, line);
+    CPPUNIT_ASSERT_EQUAL(" gid=" + gid, line);
+    std::getline(ss, line);
+    CPPUNIT_ASSERT_EQUAL(" site-hint=" + hint, line);
+    std::getline(ss, line);
+    CPPUNIT_ASSERT(!ss);
+  }
+  // The saved download is gone, so its GID is free for the restored
+  // one, as at a restart.
+  UriListParser parser(filename);
+  std::vector<std::shared_ptr<RequestGroup>> restored;
+  Option templateOption;
+  CPPUNIT_ASSERT(createRequestGroupFromUriListParser(restored, &templateOption,
+                                                     &parser));
+  CPPUNIT_ASSERT_EQUAL((size_t)1, restored.size());
+  CPPUNIT_ASSERT_EQUAL(gid, GroupId::toHex(restored[0]->getGID()));
+  CPPUNIT_ASSERT_EQUAL(hint, restored[0]->getOption()->get(PREF_SITE_HINT));
+  CPPUNIT_ASSERT_EQUAL(site, sites.classify(*restored[0]->getOption()).site);
 }
 
 } // namespace aria2

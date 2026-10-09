@@ -683,6 +683,43 @@ std::string SiteConcurrentOptionHandler::createPossibleValuesString() const
   return "HOST:N[,HOST:N...]";
 }
 
+SiteHintOptionHandler::SiteHintOptionHandler(PrefPtr pref,
+                                             const char* description,
+                                             const std::string& defaultValue,
+                                             char shortName)
+    : AbstractOptionHandler(pref, description, defaultValue,
+                            OptionHandler::REQ_ARG, shortName)
+{
+}
+
+SiteHintOptionHandler::~SiteHintOptionHandler() = default;
+
+void SiteHintOptionHandler::parseArg(Option& option,
+                                     const std::string& optarg) const
+{
+  if (!optarg.empty()) {
+    // RFC 3986 allows no space or control character in a URI, but
+    // uri::parse accepts them, and the session file holds one option
+    // per line, whitespace-stripped.
+    bool spaceOrControl =
+        std::any_of(optarg.begin(), optarg.end(), [](char c) {
+          auto b = static_cast<unsigned char>(c);
+          return b <= 0x20 || b == 0x7f;
+        });
+    uri::UriStruct us;
+    if (spaceOrControl || !uri::parse(us, optarg) ||
+        SiteConcurrency::normalizeHost(us.host).empty()) {
+      throw DL_ABORT_EX("Site hint is not a URI with a host.");
+    }
+  }
+  option.put(pref_, optarg);
+}
+
+std::string SiteHintOptionHandler::createPossibleValuesString() const
+{
+  return "URI";
+}
+
 DeprecatedOptionHandler::DeprecatedOptionHandler(
     OptionHandler* depOptHandler, const OptionHandler* repOptHandler,
     bool stillWork, std::string additionalMessage)

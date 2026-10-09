@@ -185,6 +185,8 @@ extern PrefPtr PREF_SITE_CONCURRENT;
 extern PrefPtr PREF_SITE_CONCURRENT_DEFAULT;
 // value: string that your file system recognizes as a file name.
 extern PrefPtr PREF_SITE_CONCURRENT_FILE;
+// value: URI
+extern PrefPtr PREF_SITE_HINT;
 // value: true | false
 extern PrefPtr PREF_FORCE_SEQUENTIAL;
 // value: true | false

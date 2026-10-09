@@ -722,6 +722,13 @@ std::vector<OptionHandler*> OptionHandlerFactory::createOptionHandlers()
     handlers.push_back(op);
   }
   {
+    OptionHandler* op(
+        new SiteHintOptionHandler(PREF_SITE_HINT, TEXT_SITE_HINT));
+    op->addTag(TAG_ADVANCED);
+    op->setInitialOption(true);
+    handlers.push_back(op);
+  }
+  {
     OptionHandler* op(new UnitNumberOptionHandler(PREF_SOCKET_RECV_BUFFER_SIZE,
                                                   TEXT_SOCKET_RECV_BUFFER_SIZE,
                                                   "0", 0, 16_m));

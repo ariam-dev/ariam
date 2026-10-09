@@ -263,12 +263,13 @@
 #define TEXT_SITE_CONCURRENT                                            \
   _(" --site-concurrent=HOST:N[,HOST:N...] Set the maximum number of parallel\n" \
     "                              downloads N for each listed site HOST. The site\n" \
-    "                              of a download comes from the host of the first\n" \
-    "                              non-empty Referer line in --header, otherwise\n" \
-    "                              from --referer unless it is '*'. HOST matches\n" \
-    "                              itself and every subdomain. When several HOSTs\n" \
-    "                              match, the longest one wins. HOST is a lowercase\n" \
-    "                              domain name or IP address. N must be at least 1.\n" \
+    "                              of a download comes from the host of a non-empty\n" \
+    "                              --site-hint, otherwise of the first non-empty\n" \
+    "                              Referer line in --header, otherwise of --referer\n" \
+    "                              unless it is '*'. HOST matches itself and every\n" \
+    "                              subdomain. When several HOSTs match, the longest\n" \
+    "                              one wins. HOST is a lowercase domain name or IP\n" \
+    "                              address. N must be at least 1.\n" \
     "                              An IPv6 HOST is written without brackets, for\n" \
     "                              example, ::1:2 sets N to 2 for site ::1.\n" \
     "                              See also --site-concurrent-default and\n" \
@@ -277,16 +278,32 @@
   _(" --site-concurrent-default=N  Set the maximum number of parallel downloads\n" \
     "                              for each site not listed in --site-concurrent.\n" \
     "                              An unlisted site is the registrable domain of\n" \
-    "                              the referer host (Public Suffix List), or the\n" \
-    "                              whole host if it has none. An IP address is its\n" \
-    "                              own site. Downloads without a referer share the\n" \
-    "                              site (none). 0 means no per-site limit.")
+    "                              the host that gives the site (see\n" \
+    "                              --site-concurrent) per the Public Suffix List,\n" \
+    "                              or the whole host if it has none. An IP address\n" \
+    "                              is its own site. Downloads whose site source\n" \
+    "                              gives no host share the site (none). 0 means no\n" \
+    "                              per-site limit.")
 #define TEXT_SITE_CONCURRENT_FILE                                       \
   _(" --site-concurrent-file=FILE  Save --site-concurrent and\n" \
     "                              --site-concurrent-default to FILE when they are\n" \
     "                              changed by RPC. If FILE exists at startup, its\n" \
     "                              values override the configuration file and the\n" \
     "                              command-line options.")
+#define TEXT_SITE_HINT                                                  \
+  _(" --site-hint=URI              Give the site of this download for\n" \
+    "                              --site-concurrent as a URI of the page the\n" \
+    "                              download was started from. Only its host is\n" \
+    "                              used, and it is never sent to a server. An empty\n" \
+    "                              value means no hint. A value is rejected when it\n" \
+    "                              is longer than 65535 bytes, is not an http,\n" \
+    "                              https, ftp, or sftp URI with a host (another\n" \
+    "                              scheme needs an explicit port), or has a space\n" \
+    "                              or a control character. This option is per\n" \
+    "                              download only: give it in the aria2.addUri\n" \
+    "                              options or the input file. aria2 refuses to\n" \
+    "                              start with it in the configuration file or on\n" \
+    "                              the command line, an empty value included.")
 #define TEXT_LOAD_COOKIES                                               \
   _(" --load-cookies=FILE          Load Cookies from FILE using the Firefox3 format\n" \
     "                              and Mozilla/Firefox(1.x/2.x)/Netscape format.")

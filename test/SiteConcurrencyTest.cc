@@ -32,6 +32,11 @@ class SiteConcurrencyTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testNoReferer);
   CPPUNIT_TEST(testUnparsableReferer);
   CPPUNIT_TEST(testFirstRefererHeaderWins);
+  CPPUNIT_TEST(testSiteHintBeatsReferer);
+  CPPUNIT_TEST(testEmptySiteHintFallsThrough);
+  CPPUNIT_TEST(testSiteHintNormalized);
+  CPPUNIT_TEST(testSiteHintOptionHandler);
+  CPPUNIT_TEST(testValidateGlobalOptions);
   CPPUNIT_TEST(testSubdomainMatch);
   CPPUNIT_TEST(testLongestMatchWins);
   CPPUNIT_TEST(testRegistrableDomain);
@@ -69,6 +74,11 @@ public:
   void testNoReferer();
   void testUnparsableReferer();
   void testFirstRefererHeaderWins();
+  void testSiteHintBeatsReferer();
+  void testEmptySiteHintFallsThrough();
+  void testSiteHintNormalized();
+  void testSiteHintOptionHandler();
+  void testValidateGlobalOptions();
   void testSubdomainMatch();
   void testLongestMatchWins();
   void testRegistrableDomain();
@@ -119,7 +129,7 @@ void SiteConcurrencyTest::testRefererHeaderBeatsRefererOption()
   auto option = createDownloadOption(
       "Accept: */*\nReferer: https://a.test/page\n", "https://b.test/");
   CPPUNIT_ASSERT_EQUAL(std::string("a.test"),
-                       SiteConcurrency::getRefererHost(option));
+                       SiteConcurrency::getSourceHost(option));
   auto m = sites.classify(option);
   CPPUNIT_ASSERT_EQUAL(std::string("a.test"), m.site);
   CPPUNIT_ASSERT(m.listed);
@@ -161,7 +171,7 @@ void SiteConcurrencyTest::testRefererOptionStarOrEmptySkipped()
   auto sites = createSites();
   auto option = createDownloadOption("", "*");
   CPPUNIT_ASSERT_EQUAL(std::string(),
-                       SiteConcurrency::getRefererHost(option));
+                       SiteConcurrency::getSourceHost(option));
   CPPUNIT_ASSERT_EQUAL(SITE_NONE, sites.classify(option).site);
 
   option = createDownloadOption("Referer: https://a.test/\n", "*");
@@ -196,7 +206,7 @@ void SiteConcurrencyTest::testUnparsableReferer()
   // referer option nor a later Referer line is used.
   option = createDownloadOption("Referer: a.test/page\n", "https://b.test/");
   CPPUNIT_ASSERT_EQUAL(std::string(),
-                       SiteConcurrency::getRefererHost(option));
+                       SiteConcurrency::getSourceHost(option));
   CPPUNIT_ASSERT_EQUAL(SITE_NONE, sites.classify(option).site);
   option = createDownloadOption(
       "Referer: a.test/page\nReferer: https://b.test/\n", "");
@@ -209,11 +219,184 @@ void SiteConcurrencyTest::testFirstRefererHeaderWins()
   auto option = createDownloadOption(
       "Referer: https://a.test/\nReferer: https://b.test/\n", "");
   CPPUNIT_ASSERT_EQUAL(std::string("a.test"),
-                       SiteConcurrency::getRefererHost(option));
+                       SiteConcurrency::getSourceHost(option));
   CPPUNIT_ASSERT_EQUAL(std::string("a.test"), sites.classify(option).site);
   option = createDownloadOption(
       "Referer: https://b.test/\nReferer: https://a.test/\n", "");
   CPPUNIT_ASSERT_EQUAL(std::string("b.test"), sites.classify(option).site);
+}
+
+void SiteConcurrencyTest::testSiteHintBeatsReferer()
+{
+  auto sites = createSites();
+  auto option = createDownloadOption("Referer: https://a.test/page\n",
+                                     "https://a.test/");
+  option.put(PREF_SITE_HINT, "https://b.test/");
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"),
+                       SiteConcurrency::getSourceHost(option));
+  auto m = sites.classify(option);
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"), m.site);
+  CPPUNIT_ASSERT(m.listed);
+  CPPUNIT_ASSERT_EQUAL(3, m.limit);
+
+  option = createDownloadOption("", "https://a.test/");
+  option.put(PREF_SITE_HINT, "https://b.test/");
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"), sites.classify(option).site);
+
+  // An unlisted hint beats a listed referer.
+  option = createDownloadOption("Referer: https://a.test/\n", "");
+  option.put(PREF_SITE_HINT, "https://c.test/");
+  m = sites.classify(option);
+  CPPUNIT_ASSERT_EQUAL(std::string("c.test"), m.site);
+  CPPUNIT_ASSERT(!m.listed);
+  CPPUNIT_ASSERT_EQUAL(2, m.limit);
+}
+
+void SiteConcurrencyTest::testEmptySiteHintFallsThrough()
+{
+  auto sites = createSites();
+  auto option = createDownloadOption("Referer: https://a.test/\n",
+                                     "https://b.test/");
+  option.put(PREF_SITE_HINT, "");
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test"),
+                       SiteConcurrency::getSourceHost(option));
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test"), sites.classify(option).site);
+
+  option = createDownloadOption("", "https://b.test/");
+  option.put(PREF_SITE_HINT, "");
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"),
+                       SiteConcurrency::getSourceHost(option));
+  CPPUNIT_ASSERT_EQUAL(std::string("b.test"), sites.classify(option).site);
+
+  option = Option();
+  option.put(PREF_SITE_HINT, "");
+  CPPUNIT_ASSERT_EQUAL(SITE_NONE, sites.classify(option).site);
+}
+
+void SiteConcurrencyTest::testSiteHintNormalized()
+{
+  auto sites = createSites();
+  Option option;
+  option.put(PREF_SITE_HINT, "https://WWW.A.Test./page?q=1");
+  CPPUNIT_ASSERT_EQUAL(std::string("www.a.test"),
+                       SiteConcurrency::getSourceHost(option));
+  auto m = sites.classify(option);
+  CPPUNIT_ASSERT_EQUAL(std::string("a.test"), m.site);
+  CPPUNIT_ASSERT(m.listed);
+  CPPUNIT_ASSERT_EQUAL(1, m.limit);
+
+  // A listed site's subdomain matches the longest listed entry.
+  option.put(PREF_SITE_HINT, "https://y.x.b.test/");
+  m = sites.classify(option);
+  CPPUNIT_ASSERT_EQUAL(std::string("x.b.test"), m.site);
+  CPPUNIT_ASSERT(m.listed);
+  CPPUNIT_ASSERT_EQUAL(5, m.limit);
+
+  // An unlisted hint falls back to its registrable domain.
+  option.put(PREF_SITE_HINT, "https://Members.Example.co.uk./x");
+  m = sites.classify(option);
+  CPPUNIT_ASSERT_EQUAL(std::string("example.co.uk"), m.site);
+  CPPUNIT_ASSERT(!m.listed);
+  CPPUNIT_ASSERT_EQUAL(2, m.limit);
+
+  option.put(PREF_SITE_HINT, "https://www.example.com:8443");
+  CPPUNIT_ASSERT_EQUAL(std::string("example.com"),
+                       sites.classify(option).site);
+  option.put(PREF_SITE_HINT, "http://192.0.2.1/");
+  CPPUNIT_ASSERT_EQUAL(std::string("192.0.2.1"), sites.classify(option).site);
+}
+
+void SiteConcurrencyTest::testSiteHintOptionHandler()
+{
+  auto h = OptionParser::getInstance()->find(PREF_SITE_HINT);
+  CPPUNIT_ASSERT(h);
+  CPPUNIT_ASSERT_EQUAL(std::string("URI"), h->createPossibleValuesString());
+  auto longest =
+      std::string("https://example.com/") + std::string(65535 - 20, 'a');
+  CPPUNIT_ASSERT_EQUAL((size_t)65535, longest.size());
+  auto tooLong = longest + "a";
+  CPPUNIT_ASSERT_EQUAL((size_t)65536, tooLong.size());
+  std::vector<std::string> good{"", "https://www.example.com/",
+                                "https://example.com:8443",
+                                "http://192.0.2.1/", longest};
+  for (const auto& s : good) {
+    Option option;
+    h->parse(option, s);
+    CPPUNIT_ASSERT(option.defined(PREF_SITE_HINT));
+    CPPUNIT_ASSERT_EQUAL(s, option.get(PREF_SITE_HINT));
+  }
+  std::vector<std::string> bad{
+      "example.com",
+      "not a uri",
+      "https:///path",
+      "https://example.com/a\n referer=https://example.com/",
+      "https://example.com/\t",
+      "https:// ",
+      "https://./",
+      " https://example.com/",
+      "https://example.com/a b",
+      tooLong};
+  for (const auto& s : bad) {
+    Option option;
+    try {
+      h->parse(option, s);
+      CPPUNIT_FAIL("exception must be thrown: " + s);
+    }
+    catch (Exception& e) {
+      auto trace = e.stackTrace();
+      CPPUNIT_ASSERT_MESSAGE(
+          trace, trace.find("Site hint is not a URI with a host.") !=
+                     std::string::npos);
+      CPPUNIT_ASSERT_MESSAGE(trace, trace.find(s) == std::string::npos);
+    }
+    CPPUNIT_ASSERT(!option.defined(PREF_SITE_HINT));
+  }
+}
+
+void SiteConcurrencyTest::testValidateGlobalOptions()
+{
+  auto rejects = [](const Option& op) {
+    try {
+      SiteConcurrency::validateGlobalOptions(op);
+      CPPUNIT_FAIL("exception must be thrown");
+    }
+    catch (Exception& e) {
+      CPPUNIT_ASSERT_MESSAGE(e.what(),
+                             std::string(e.what()).find(
+                                 "--site-hint is a per-download option") !=
+                                 std::string::npos);
+    }
+  };
+
+  SiteConcurrency::validateGlobalOptions(Option());
+  {
+    Option op;
+    OptionParser::getInstance()->parseDefaultValues(op);
+    CPPUNIT_ASSERT(!op.defined(PREF_SITE_HINT));
+    SiteConcurrency::validateGlobalOptions(op);
+  }
+  {
+    Option op;
+    op.put(PREF_SITE_HINT, "https://a.test/");
+    rejects(op);
+  }
+  {
+    Option op;
+    op.put(PREF_SITE_HINT, "");
+    rejects(op);
+  }
+  {
+    // The configuration file option is the parent of the command-line one.
+    auto conf = std::make_shared<Option>();
+    std::stringstream ss;
+    ss << "site-hint=https://a.test/\n";
+    OptionParser::getInstance()->parse(*conf, ss);
+    Option op;
+    op.setParent(conf);
+    rejects(op);
+    conf->put(PREF_SITE_HINT, "");
+    rejects(op);
+  }
 }
 
 void SiteConcurrencyTest::testSubdomainMatch()
@@ -340,7 +523,7 @@ void SiteConcurrencyTest::testNormalizeHost()
   auto option =
       createDownloadOption("Referer: https://WWW.A.Test./page?q=1\n", "");
   CPPUNIT_ASSERT_EQUAL(std::string("www.a.test"),
-                       SiteConcurrency::getRefererHost(option));
+                       SiteConcurrency::getSourceHost(option));
   auto m = sites.classify(option);
   CPPUNIT_ASSERT_EQUAL(std::string("a.test"), m.site);
   CPPUNIT_ASSERT(m.listed);
@@ -472,6 +655,14 @@ void SiteConcurrencyTest::testOptionHandlerFlags()
   CPPUNIT_ASSERT(!h->getInitialOption());
   CPPUNIT_ASSERT(!h->getChangeOption());
   CPPUNIT_ASSERT(!h->getChangeOptionForReserved());
+
+  h = parser->find(PREF_SITE_HINT);
+  CPPUNIT_ASSERT(h);
+  CPPUNIT_ASSERT(!h->getChangeGlobalOption());
+  CPPUNIT_ASSERT(h->getInitialOption());
+  CPPUNIT_ASSERT(!h->getChangeOption());
+  CPPUNIT_ASSERT(!h->getChangeOptionForReserved());
+  CPPUNIT_ASSERT(h->getDefaultValue().empty());
 }
 
 void SiteConcurrencyTest::testSiteConcurrentDefault()
