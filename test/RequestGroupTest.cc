@@ -122,7 +122,7 @@ void RequestGroupTest::testTryAutoFileRenaming_activeDownload()
       A2_TEST_OUT_DIR "/aria2_RequestGroupTest_activeDownload/myfile.2.txt";
   // myfile.1.txt is a partial download with its control file.
   createFile(path1, 0);
-  createFile(path1 + ".aria2", 0);
+  createFile(path1 + ".ariam", 0);
   File(path2).remove();
   option_->put(PREF_AUTO_FILE_RENAMING, "true");
 
@@ -160,7 +160,7 @@ void RequestGroupTest::testTryAutoFileRenaming_pausedDownload()
       A2_TEST_OUT_DIR "/aria2_RequestGroupTest_pausedDownload/myfile.2.txt";
   // myfile.1.txt is a partial download with its control file.
   createFile(path1, 0);
-  createFile(path1 + ".aria2", 0);
+  createFile(path1 + ".ariam", 0);
   File(path2).remove();
   option_->put(PREF_AUTO_FILE_RENAMING, "true");
 
@@ -191,9 +191,9 @@ void RequestGroupTest::testAdjustFilename_pausedDownload()
       A2_TEST_OUT_DIR "/aria2_RequestGroupTest_adjustFilename/myfile.1.txt";
   // myfile.txt is the paused download's partial file with its control file.
   createFile(path, 1_k);
-  createFile(path + ".aria2", 0);
+  createFile(path + ".ariam", 0);
   File(path1).remove();
-  File(path1 + ".aria2").remove();
+  File(path1 + ".ariam").remove();
   option_->put(PREF_AUTO_FILE_RENAMING, "true");
 
   auto otherCtx = std::make_shared<DownloadContext>(1_k, 1_k, path);
@@ -217,7 +217,7 @@ void RequestGroupTest::testAdjustFilename_pausedDownload()
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
   CPPUNIT_ASSERT_EQUAL(path1, group->getFirstFilePath());
   CPPUNIT_ASSERT_EQUAL(path, other->getFirstFilePath());
-  CPPUNIT_ASSERT(File(path + ".aria2").exists());
+  CPPUNIT_ASSERT(File(path + ".ariam").exists());
   CPPUNIT_ASSERT_EQUAL((int64_t)1_k, File(path).size());
 }
 
@@ -226,39 +226,46 @@ void RequestGroupTest::testAdjustFilename_controlFileSuffix()
   const std::string dir =
       A2_TEST_OUT_DIR "/aria2_RequestGroupTest_controlFileSuffix";
   File(dir).mkdirs();
-  for (const auto& name : {"f.bin.aria2_", "f.bin.aria2_.aria2",
-                           "f.bin.aria2__temp_", "f.bin.aria2__temp_.aria2",
-                           "f.bin.1.aria2_", "f.bin.1.aria2_.aria2",
-                           "f.bin.ARIA2", "f.bin.ARIA2.aria2"}) {
+  for (const auto& name : {"f.bin.ariam_", "f.bin.ariam_.ariam",
+                           "f.bin.ariam__temp_", "f.bin.ariam__temp_.ariam",
+                           "f.bin.1.ariam_", "f.bin.1.ariam_.ariam",
+                           "f.bin.ARIAM", "f.bin.ARIAM.ariam", "f.bin.aria2",
+                           "f.bin.aria2.ariam"}) {
     File(dir + "/" + name).remove();
   }
   option_->put(PREF_AUTO_FILE_RENAMING, "true");
 
-  auto ctx = std::make_shared<DownloadContext>(1_k, 1_k, dir + "/f.bin.aria2");
+  auto ctx = std::make_shared<DownloadContext>(1_k, 1_k, dir + "/f.bin.ariam");
   auto group = std::make_shared<RequestGroup>(GroupId::create(), option_);
   group->setDownloadContext(ctx);
 
   auto infoFile =
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get());
   group->adjustFilename(infoFile);
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.aria2_", group->getFirstFilePath());
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.aria2_.aria2", infoFile->getFilename());
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ariam_", group->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ariam_.ariam", infoFile->getFilename());
 
-  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.aria2__temp");
+  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.ariam__temp");
   group->adjustFilename(
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.aria2__temp_", group->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ariam__temp_", group->getFirstFilePath());
 
-  createFile(dir + "/f.bin.aria2_", 0);
+  createFile(dir + "/f.bin.ariam_", 0);
+  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.ariam");
+  group->adjustFilename(
+      std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.1.ariam_", group->getFirstFilePath());
+
+  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.ARIAM");
+  group->adjustFilename(
+      std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ARIAM", group->getFirstFilePath());
+
+  // A stock aria2 control file name is an ordinary file name.
   ctx->getFirstFileEntry()->setPath(dir + "/f.bin.aria2");
   group->adjustFilename(
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.1.aria2_", group->getFirstFilePath());
-
-  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.ARIA2");
-  group->adjustFilename(
-      std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ARIA2", group->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.aria2", group->getFirstFilePath());
 }
 
 void RequestGroupTest::testCreateDownloadResult()

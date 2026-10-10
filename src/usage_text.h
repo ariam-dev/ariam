@@ -554,7 +554,7 @@
     "                              performance profile of the servers since the last\n" \
     "                              contact to them.")
 #define TEXT_AUTO_SAVE_INTERVAL                                         \
-  _(" --auto-save-interval=SEC     Save a control file(*.aria2) every SEC seconds.\n" \
+  _(" --auto-save-interval=SEC     Save a control file(*.ariam) every SEC seconds.\n" \
     "                              If 0 is given, a control file is not saved during\n" \
     "                              download. aria2 saves a control file when it stops\n" \
     "                              regardless of the value.")

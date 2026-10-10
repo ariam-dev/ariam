@@ -315,10 +315,10 @@ EXTRA_DIST = 4096chunk.txt\
 	filelist1.txt\
 	filelist2.txt\
 	gzip_decode_test.gz\
-	load-nonBt.aria2\
-	load-nonBt-v0001.aria2\
-	load.aria2\
-	load-v0001.aria2\
+	load-nonBt.ariam\
+	load-nonBt-v0001.ariam\
+	load.ariam\
+	load-v0001.ariam\
 	malformed.netrc\
 	nscookietest.txt\
 	sample.netrc\

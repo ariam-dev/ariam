@@ -297,7 +297,7 @@ void RequestGroupManTest::testFillRequestGroupFromReserver_skippedOwnsPath()
       A2_TEST_OUT_DIR "/aria2_RequestGroupManTest_skippedOwnsPath";
   File(dir).mkdirs();
   File(dir + "/x.1.bin").remove();
-  File(dir + "/x.1.bin.aria2").remove();
+  File(dir + "/x.1.bin.ariam").remove();
   auto a = createRequestGroup(0, 0, dir + "/x.bin", "http://host/a",
                               util::copy(option_));
   a->setPauseRequested(true);
