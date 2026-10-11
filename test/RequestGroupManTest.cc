@@ -48,6 +48,7 @@ class RequestGroupManTest : public CppUnit::TestFixture {
   CPPUNIT_TEST(testFillRequestGroupFromReserver_siteParseError);
   CPPUNIT_TEST(testInsertReservedGroup);
   CPPUNIT_TEST(testAddDownloadResult);
+  CPPUNIT_TEST(testHalt_interruptedDownload);
   CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -91,6 +92,7 @@ public:
   void testFillRequestGroupFromReserver_siteParseError();
   void testInsertReservedGroup();
   void testAddDownloadResult();
+  void testHalt_interruptedDownload();
 };
 
 CPPUNIT_TEST_SUITE_REGISTRATION(RequestGroupManTest);
@@ -596,6 +598,39 @@ void RequestGroupManTest::testAddDownloadResult()
   rgman_->addDownloadResult(createDownloadResult(error_code::FINISHED, uri));
   CPPUNIT_ASSERT_EQUAL(error_code::TIME_OUT,
                        rgman_->getDownloadStat().getLastErrorResult());
+}
+
+void RequestGroupManTest::testHalt_interruptedDownload()
+{
+  for (bool force : {false, true}) {
+    auto running = std::make_shared<RequestGroup>(GroupId::create(), option_);
+    running->setDownloadContext(
+        std::make_shared<DownloadContext>(1_k, 1_m, "/tmp/running"));
+    running->initPieceStorage();
+    // A mirror failed; the download went on from another one.
+    running->setLastErrorCode(error_code::RESOURCE_NOT_FOUND);
+    rgman_->addRequestGroup(running);
+
+    auto failed = std::make_shared<RequestGroup>(GroupId::create(), option_);
+    failed->setDownloadContext(
+        std::make_shared<DownloadContext>(1_k, 1_m, "/tmp/failed"));
+    failed->initPieceStorage();
+    // A command halts its group when the download fails.
+    failed->setLastErrorCode(error_code::RESOURCE_NOT_FOUND);
+    failed->setHaltRequested(true);
+    rgman_->addRequestGroup(failed);
+
+    if (force) {
+      rgman_->forceHalt();
+    }
+    else {
+      rgman_->halt();
+    }
+    CPPUNIT_ASSERT_EQUAL(error_code::IN_PROGRESS,
+                         running->createDownloadResult()->result);
+    CPPUNIT_ASSERT_EQUAL(error_code::RESOURCE_NOT_FOUND,
+                         failed->createDownloadResult()->result);
+  }
 }
 
 } // namespace aria2

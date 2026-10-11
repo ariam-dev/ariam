@@ -150,6 +150,7 @@ RequestGroup::RequestGroup(const std::shared_ptr<GroupId>& gid,
       haltRequested_(false),
       forceHaltRequested_(false),
       pauseRequested_(false),
+      interruptedByShutdown_(false),
       restartRequested_(false),
       inMemoryDownload_(false),
       seedOnly_(false)
@@ -195,6 +196,11 @@ std::pair<error_code::Value, std::string> RequestGroup::downloadResult() const
 
   if (haltReason_ == RequestGroup::USER_REQUEST) {
     return std::make_pair(error_code::REMOVED, "");
+  }
+
+  // Unfinished, whatever errors its URIs hit before the shutdown.
+  if (interruptedByShutdown_) {
+    return std::make_pair(error_code::IN_PROGRESS, "");
   }
 
   if (lastErrorCode_ == error_code::UNDEFINED) {

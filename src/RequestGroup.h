@@ -181,6 +181,9 @@ private:
 
   bool pauseRequested_;
 
+  // True if this download was still running when the engine shut down.
+  bool interruptedByShutdown_;
+
   // restartRequested_ indicates that this download should be
   // restarted.  Usually, it is used with pauseRequested_ to stop
   // download first.
@@ -348,6 +351,8 @@ public:
   bool isHaltRequested() const { return haltRequested_; }
 
   bool isForceHaltRequested() const { return forceHaltRequested_; }
+
+  void setInterruptedByShutdown() { interruptedByShutdown_ = true; }
 
   void setPauseRequested(bool f);
 
