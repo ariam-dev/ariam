@@ -620,6 +620,16 @@ void RequestGroupManTest::testHalt_interruptedDownload()
     failed->setHaltRequested(true);
     rgman_->addRequestGroup(failed);
 
+    auto pausing = std::make_shared<RequestGroup>(GroupId::create(), option_);
+    pausing->setDownloadContext(
+        std::make_shared<DownloadContext>(1_k, 1_m, "/tmp/pausing"));
+    pausing->initPieceStorage();
+    pausing->setLastErrorCode(error_code::RESOURCE_NOT_FOUND);
+    // How aria2.pause stops an active download.
+    pausing->setHaltRequested(true, RequestGroup::NONE);
+    pausing->setPauseRequested(true);
+    rgman_->addRequestGroup(pausing);
+
     if (force) {
       rgman_->forceHalt();
     }
@@ -630,6 +640,8 @@ void RequestGroupManTest::testHalt_interruptedDownload()
                          running->createDownloadResult()->result);
     CPPUNIT_ASSERT_EQUAL(error_code::RESOURCE_NOT_FOUND,
                          failed->createDownloadResult()->result);
+    CPPUNIT_ASSERT_EQUAL(error_code::IN_PROGRESS,
+                         pausing->createDownloadResult()->result);
   }
 }
 

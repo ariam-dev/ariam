@@ -905,13 +905,14 @@ bool RequestGroupMan::isFileOwned(const std::string& path,
   return false;
 }
 
-// A download not yet halted is still running: it stays in the session
-// even if some of its URIs failed. One already halted has failed or is
-// being removed or paused.
+// A download not yet halted, or being paused (a pause or an option
+// change restarts it), is unfinished: it stays in the session even if
+// some of its URIs failed. Any other halted download has failed or is
+// being removed.
 void RequestGroupMan::halt()
 {
   for (auto& elem : requestGroups_) {
-    if (!elem->isHaltRequested()) {
+    if (!elem->isHaltRequested() || elem->isPauseRequested()) {
       elem->setInterruptedByShutdown();
     }
     elem->setHaltRequested(true);
@@ -921,7 +922,7 @@ void RequestGroupMan::halt()
 void RequestGroupMan::forceHalt()
 {
   for (auto& elem : requestGroups_) {
-    if (!elem->isHaltRequested()) {
+    if (!elem->isHaltRequested() || elem->isPauseRequested()) {
       elem->setInterruptedByShutdown();
     }
     elem->setForceHaltRequested(true);
