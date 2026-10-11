@@ -98,7 +98,7 @@ host's site is its registrable domain per the Public Suffix List
   download was started from. Only its host is read; it is never sent
   to a server and cannot be set globally.
 
-Waiting downloads start oldest first. A download whose site is at its
+Waiting downloads start in queue order. A download whose site is at its
 limit is skipped and keeps its queue position. A paused download
 releases its slot. ``aria2.changeGlobalOption`` with either site option
 applies at once and reclassifies queued downloads.
@@ -129,9 +129,11 @@ change any other option, and the RPC secret never reaches the browser.
 Failed passphrase checks are rate limited per client address. The page
 sends a strict Content Security Policy and no inline script.
 
-The page lists every active download and up to 200 each of the queued
-(oldest first) and finished (newest first) ones. **Clear list** removes
-every finished download, including any beyond those shown.
+The page lists every running download; the first 200 waiting
+downloads in queue order, paused ones with the running ones and the
+rest as queued; and the 200 most recent finished ones. **Clear list**
+empties the finished list (``aria2.purgeDownloadResult``), including
+any beyond those shown; the downloaded files are kept.
 
 On an instance with the page enabled, a JSONP request is refused unless
 its ``jsoncallback`` starts with an ASCII letter, ``_`` or ``$`` and
