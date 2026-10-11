@@ -3,6 +3,7 @@
  * aria2 - The high speed download utility
  *
  * Copyright (C) 2010 Tatsuhiro Tsujikawa
+ * Modified by dta0one for ariam, 2026-10-11.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
