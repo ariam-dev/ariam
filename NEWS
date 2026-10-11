@@ -1,3 +1,12 @@
+ariam 1.0.0
+===========
+
+First release of ariam, a personal fork of aria2 1.37.0 for HTTP(S)
+and FTP downloads. Changes from aria2 1.37.0 are listed in README.rst.
+BitTorrent, Metalink and WebSocket RPC are off by default and
+unsupported. Control files are renamed <name>.ariam, so ariam does not
+resume a download from an aria2 <name>.aria2 file.
+
 aria2 1.37.0
 ============
 
