@@ -4,7 +4,7 @@ Technical Notes
 This document describes additional technical information of aria2. The
 expected audience is developers.
 
-Control File (\*.aria2) Format
+Control File (\*.ariam) Format
 ------------------------------
 
 The control file uses a binary format to store progress information of

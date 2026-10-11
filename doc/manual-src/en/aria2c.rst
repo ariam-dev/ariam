@@ -1221,7 +1221,7 @@ Advanced Options
 
 .. option:: --auto-save-interval=<SEC>
 
-  Save a control file(\*.aria2) every SEC seconds.
+  Save a control file(\*.ariam) every SEC seconds.
   If ``0`` is given, a control file is not saved during download. aria2 saves a
   control file when it stops regardless of the value.
   The possible values are between ``0`` to ``600``.
@@ -1396,9 +1396,9 @@ Advanced Options
 
 .. option:: --save-not-found [true|false]
 
-  Save download with :option:`--save-session <--save-session>` option
-  even if the file was not found on the server. This option also saves
-  control file in that situations.
+  No effect: :option:`--save-session <--save-session>` never saves a
+  download that stopped with an error, file not found on the server
+  included.
   Default: ``true``
 
 .. option:: --gid=<GID>
@@ -1650,7 +1650,8 @@ Advanced Options
 
 .. option:: --save-session=<FILE>
 
-  Save error/unfinished downloads to FILE on exit.  You can pass this
+  Save unfinished downloads to FILE on exit.  Downloads that stopped
+  with an error are not saved.  You can pass this
   output file to aria2c with :option:`--input-file <-i>` option on
   restart. If you like the output to be gzipped append a .gz extension to
   the file name.
@@ -1680,7 +1681,7 @@ Advanced Options
 
 .. option:: --save-session-interval=<SEC>
 
-  Save error/unfinished downloads to a file specified by
+  Save unfinished downloads to a file specified by
   :option:`--save-session` option every SEC seconds. If ``0`` is
   given, file will be saved only when aria2 exits. Default: ``0``
 
@@ -1860,7 +1861,7 @@ based on the last error encountered.
   If there was not enough disk space available.
 
 10
-  If piece length was different from one in .aria2 control file. See
+  If piece length was different from one in .ariam control file. See
   :option:`--allow-piece-length-change` option.
 
 11
@@ -2077,13 +2078,14 @@ Control File
 
 aria2 uses a control file to track the progress of a download.  A
 control file is placed in the same directory as the downloading file
-and its file name is the file name of downloading file with ``.aria2``
+and its file name is the file name of downloading file with ``.ariam``
 appended.  For example, if you are downloading file.zip, then the
-control file should be file.zip.aria2.  (There is a exception for this
+control file should be file.zip.ariam.  (There is a exception for this
 naming convention.  If you are downloading a multi torrent, its
-control file is the "top directory" name of the torrent with ``.aria2``
+control file is the "top directory" name of the torrent with ``.ariam``
 appended.  The "top directory" name is a value of "name" key in "info"
-directory in a torrent file.)
+directory in a torrent file.)  A ``.aria2`` file is not a control file
+to ariam: no download resumes from it.
 
 Usually a control file is deleted once download completed.  If aria2
 decides that download cannot be resumed(for example, when downloading
