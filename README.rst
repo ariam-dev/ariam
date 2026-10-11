@@ -51,9 +51,10 @@ ariam's own changes:
 * ``--save-session`` does not save a download that stopped with an
   error, so it is not re-queued on the next start. ``--save-not-found``
   has no effect.
-* The session records each download's resolved file name, and no
-  download is renamed onto or resumes into a file path another download
-  owns.
+* The session records each download's resolved file name, except a
+  name it cannot store as a session line (surrounding whitespace, a line
+  break, ``${HOME}``). No download is renamed onto or resumes into a
+  file path another download owns.
 * ``Content-Disposition`` with a trailing semicolon is accepted
   (`aria2#1118 <https://github.com/aria2/aria2/issues/1118>`_).
 * URIs longer than 65535 bytes are rejected instead of terminating the
