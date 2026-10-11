@@ -69,9 +69,11 @@ ARIA2_ARG_WITH([jemalloc])
 ARIA2_ARG_WITHOUT([libssh2])
 
 ARIA2_ARG_DISABLE([ssl])
-ARIA2_ARG_DISABLE([bittorrent])
-ARIA2_ARG_DISABLE([metalink])
-ARIA2_ARG_DISABLE([websocket])
+dnl ariam supports HTTP(S) and FTP only: BitTorrent, Metalink and
+dnl WebSocket are off unless enabled, and unsupported when enabled.
+ARIA2_ARG_ENABLE([bittorrent])
+ARIA2_ARG_ENABLE([metalink])
+ARIA2_ARG_ENABLE([websocket])
 ARIA2_ARG_DISABLE([epoll])
 ARIA2_ARG_ENABLE([libaria2])
 ARIA2_ARG_ENABLE([werror])
