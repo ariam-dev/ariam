@@ -54,6 +54,7 @@ void showVersion()
 {
   std::cout
       << PACKAGE << _(" version ") << PACKAGE_VERSION << "\n"
+      << "Based on aria2 " << ARIA2_VERSION << "\n"
       << "Copyright (C) 2006, 2019 Tatsuhiro Tsujikawa"
       << "\n"
       << "\n"

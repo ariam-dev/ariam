@@ -2,12 +2,16 @@
 # Process this file with autoconf to produce a configure script.
 #
 AC_PREREQ([2.67])
-AC_INIT([aria2],[1.37.0],[https://github.com/aria2/aria2/issues],[aria2],[https://aria2.github.io/])
+AC_INIT([ariam],[1.0.0],[https://github.com/ariam-dev/ariam/issues],[ariam],[https://github.com/ariam-dev/ariam])
 
 AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 
 AM_INIT_AUTOMAKE([subdir-objects])
+
+# The aria2 release ariam is based on. HTTP User-Agent and BitTorrent
+# peer identity keep reporting it, so ariam traffic looks like aria2's.
+AC_DEFINE([ARIA2_VERSION], ["1.37.0"], [aria2 release ariam is based on])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AC_USE_SYSTEM_EXTENSIONS
