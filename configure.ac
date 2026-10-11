@@ -1077,6 +1077,7 @@ AC_CONFIG_FILES([Makefile
                 doc/manual-src/ru/conf.py
                 doc/manual-src/pt/Makefile
                 doc/manual-src/pt/conf.py
+                www/Makefile
                 deps/Makefile])
 AC_OUTPUT
 

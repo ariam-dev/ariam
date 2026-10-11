@@ -274,6 +274,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/includes -I$(top_builddir)/src/includes \
 	-I$(top_srcdir)/lib -I$(top_srcdir)/intl \
         -DLOCALEDIR=\"$(localedir)\" \
+	-DSTATUS_PAGE_DIR=\"$(datadir)/ariam/www\" \
 	-DA2_TEST_DIR=\"$(top_srcdir)/test\" \
 	-DA2_TEST_OUT_DIR=\"${a2_test_outdir}\" \
 	@CPPUNIT_CFLAGS@ \

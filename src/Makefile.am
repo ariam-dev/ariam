@@ -704,6 +704,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/lib -I$(top_srcdir)/intl\
 	-I$(srcdir)/includes -I$(builddir)/includes\
 	-DLOCALEDIR=\"@localedir@\" @DEFS@ \
+	-DSTATUS_PAGE_DIR=\"$(datadir)/ariam/www\" \
 	@EXTRACPPFLAGS@ \
 	@ZLIB_CFLAGS@ \
 	@LIBUV_CFLAGS@ \

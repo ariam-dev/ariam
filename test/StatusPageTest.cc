@@ -470,7 +470,7 @@ void StatusPageTest::testOptionProcessing_guards()
     CPPUNIT_ASSERT_EQUAL(error_code::FINISHED,
                          option_processing(op, false, uris, 0, nullptr, good));
     CPPUNIT_ASSERT_EQUAL(PASSPHRASE, op.get(PREF_STATUS_PAGE_PASSPHRASE));
-    CPPUNIT_ASSERT_EQUAL(std::string("/usr/share/ariam/www"),
+    CPPUNIT_ASSERT_EQUAL(std::string(STATUS_PAGE_DIR),
                          op.get(PREF_STATUS_PAGE_DIR));
   }
   const KeyVals conflicts[] = {

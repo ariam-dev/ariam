@@ -839,7 +839,7 @@ std::vector<OptionHandler*> OptionHandlerFactory::createOptionHandlers()
   }
   {
     OptionHandler* op(new LocalFilePathOptionHandler(
-        PREF_STATUS_PAGE_DIR, TEXT_STATUS_PAGE_DIR, "/usr/share/ariam/www",
+        PREF_STATUS_PAGE_DIR, TEXT_STATUS_PAGE_DIR, STATUS_PAGE_DIR,
         /* acceptStdin = */ false, 0, /* mustExist = */ false, PATH_TO_DIR));
     op->addTag(TAG_RPC);
     handlers.push_back(op);
