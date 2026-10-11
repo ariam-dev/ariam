@@ -41,18 +41,18 @@ ariam's own changes:
 * ``Cookie:`` and ``Authorization:`` lines in a download's ``header``
   option are sent only to the origin of the URI the download was given,
   not to the origins it redirects to.
-* Pooled HTTP(S) connections are reused only for the scheme and host
-  they were opened for (`aria2#2073
+* Pooled direct HTTP(S) connections are reused only for the scheme and
+  host they were opened for (`aria2#2073
   <https://github.com/aria2/aria2/issues/2073>`_).
 * Control files are ``<name>.ariam``. A ``<name>.aria2`` file is an
   ordinary file to ariam. A download is never named like a control
   file: one whose name ends in ``.ariam`` or ``.ariam__temp`` (in any
   case) is saved as ``<name>_``.
-* ``--save-session`` keeps unfinished downloads only: a download that
-  stopped with an error is not re-queued on the next start.
-  ``--save-not-found`` has no effect.
+* ``--save-session`` does not save a download that stopped with an
+  error, so it is not re-queued on the next start. ``--save-not-found``
+  has no effect.
 * The session records each download's resolved file name, and no
-  download is renamed onto or resumes into a file another download
+  download is renamed onto or resumes into a file path another download
   owns.
 * ``Content-Disposition`` with a trailing semicolon is accepted
   (`aria2#1118 <https://github.com/aria2/aria2/issues/1118>`_).
@@ -60,7 +60,8 @@ ariam's own changes:
   process.
 * Out-of-bounds reads in base64 decoding of bytes ``0x80`` and above,
   and an overflow in RPC pagination, are fixed.
-* Logs show request URIs as their origin, without path or query.
+* Log lines at notice level and above show request URIs as their
+  origin, without path or query.
 
 Per-site concurrency
 --------------------
@@ -123,8 +124,10 @@ change any other option, and the RPC secret never reaches the browser.
 Failed passphrase checks are rate limited per client address. The page
 sends a strict Content Security Policy and no inline script.
 
-On an instance with the page enabled, a JSONP request whose
-``jsoncallback`` is not a plain identifier is refused.
+On an instance with the page enabled, a JSONP request is refused unless
+its ``jsoncallback`` starts with an ASCII letter, ``_`` or ``$`` and
+continues with letters, digits, ``_``, ``$`` and ``.``, at most 128
+bytes.
 
 Building
 --------
