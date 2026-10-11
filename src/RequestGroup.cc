@@ -675,12 +675,14 @@ bool RequestGroup::downloadFinishedByFileLength()
 
 namespace {
 // A file with a control file suffix would be taken for another
-// download's control file, or overwritten by its progress save.
+// download's control file, or overwritten by its progress save. The
+// match ignores case: on a case-insensitive file system, "f.ARIAM"
+// is the control file of "f".
 bool hasControlFileSuffix(const std::string& path)
 {
   const auto& suffix = DefaultBtProgressInfoFile::getSuffix();
-  return util::endsWith(path, suffix) ||
-         util::endsWith(path, suffix + "__temp");
+  return util::iendsWith(path, suffix) ||
+         util::iendsWith(path, suffix + "__temp");
 }
 } // namespace
 

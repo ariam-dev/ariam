@@ -229,8 +229,9 @@ void RequestGroupTest::testAdjustFilename_controlFileSuffix()
   for (const auto& name : {"f.bin.ariam_", "f.bin.ariam_.ariam",
                            "f.bin.ariam__temp_", "f.bin.ariam__temp_.ariam",
                            "f.bin.1.ariam_", "f.bin.1.ariam_.ariam",
-                           "f.bin.ARIAM", "f.bin.ARIAM.ariam", "f.bin.aria2",
-                           "f.bin.aria2.ariam"}) {
+                           "f.bin.ARIAM_", "f.bin.ARIAM_.ariam",
+                           "f.bin.Ariam__Temp_", "f.bin.Ariam__Temp_.ariam",
+                           "f.bin.aria2", "f.bin.aria2.ariam"}) {
     File(dir + "/" + name).remove();
   }
   option_->put(PREF_AUTO_FILE_RENAMING, "true");
@@ -256,10 +257,16 @@ void RequestGroupTest::testAdjustFilename_controlFileSuffix()
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
   CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.1.ariam_", group->getFirstFilePath());
 
+  // Case-insensitive file systems alias these to control file names.
   ctx->getFirstFileEntry()->setPath(dir + "/f.bin.ARIAM");
   group->adjustFilename(
       std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
-  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ARIAM", group->getFirstFilePath());
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.ARIAM_", group->getFirstFilePath());
+
+  ctx->getFirstFileEntry()->setPath(dir + "/f.bin.Ariam__Temp");
+  group->adjustFilename(
+      std::make_shared<DefaultBtProgressInfoFile>(ctx, nullptr, option_.get()));
+  CPPUNIT_ASSERT_EQUAL(dir + "/f.bin.Ariam__Temp_", group->getFirstFilePath());
 
   // A stock aria2 control file name is an ordinary file name.
   ctx->getFirstFileEntry()->setPath(dir + "/f.bin.aria2");
