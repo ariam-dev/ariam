@@ -94,8 +94,9 @@ createHttpRequest(const std::shared_ptr<Request>& req,
   httpRequest->setRequest(req);
   httpRequest->setFileEntry(fileEntry);
   httpRequest->setSegment(segment);
-  // Scoped on every request: on a retry or pooled reuse of a redirected
-  // Request, req's current URI is still the redirect target.
+  // Scoped on every request against req's current URI: a pooled reuse
+  // after a redirect still targets the redirect, and a retry resets it
+  // to the URI the download was given.
   httpRequest->addHeader(
       scopeCredentialHeaders(option->get(PREF_HEADER), *req));
   httpRequest->setCookieStorage(e->getCookieStorage().get());

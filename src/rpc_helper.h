@@ -76,12 +76,14 @@ bool hasValidToken(const List* params, DownloadEngine* e);
 // True if |req| is on the status page passphrase allowlist.
 bool isPassphraseAllowed(const RpcRequest& req);
 
-// Every RPC call runs through here, including each system.multicall
-// sub-request. A passphrase-authorized |req| carrying a valid token
-// takes the token path with the flag cleared. Any other
-// passphrase-authorized |req| that isPassphraseAllowed() rejects gets
-// the unauthorized response without running; an allowed one carrying
-// an invalid token is rejected by RpcMethod::authorize().
+// Every JSON-RPC call runs through here, including each
+// system.multicall sub-request; XML-RPC calls are token-authorized in
+// RpcMethod::execute() and never passphrase-authorized. A
+// passphrase-authorized |req| carrying a valid token takes the token
+// path with the flag cleared. Any other passphrase-authorized |req|
+// that isPassphraseAllowed() rejects gets the unauthorized response
+// without running; an allowed one carrying an invalid token is
+// rejected by RpcMethod::authorize().
 RpcResponse dispatch(RpcRequest req, DownloadEngine* e);
 
 // Processes JSON-RPC request |jsondict| and returns the result.
