@@ -87,8 +87,12 @@ host's site is its registrable domain per the Public Suffix List
 ``max-concurrent-downloads``
   The ceiling across all sites.
 ``site-concurrent-file``
-  Where live changes to the two site options are saved. On start, the
-  file overrides the configuration file and the command line.
+  Where live changes to the two site options are saved, before they
+  apply: a failed write rejects the change and leaves the running
+  limits as they were. On start, the file overrides the configuration
+  file and the command line. A missing file means no override; a file
+  that cannot be read or has an invalid line stops ariam with the path
+  and the reason.
 ``site-hint``
   Per download (``aria2.addUri`` options): a URI of the page the
   download was started from. Only its host is read; it is never sent
@@ -124,6 +128,10 @@ downloads, read per-download options, see URIs or error messages, or
 change any other option, and the RPC secret never reaches the browser.
 Failed passphrase checks are rate limited per client address. The page
 sends a strict Content Security Policy and no inline script.
+
+The page lists every active download and up to 200 each of the queued
+(oldest first) and finished (newest first) ones. **Clear list** removes
+every finished download, including any beyond those shown.
 
 On an instance with the page enabled, a JSONP request is refused unless
 its ``jsoncallback`` starts with an ASCII letter, ``_`` or ``$`` and
