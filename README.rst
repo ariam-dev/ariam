@@ -16,7 +16,10 @@ unsupported. For a general-purpose downloader, use aria2.
 The program is still ``aria2c``, and its options, configuration and
 JSON-RPC interface are aria2's (see the `aria2 manual
 <https://aria2.github.io/manual/en/html/>`_), with the additions and
-changes below. This program comes with no warranty.
+changes below. ``aria2c --version`` names ariam and the aria2 release
+it is based on, and ``aria2.getVersion`` returns ariam's version; the
+default HTTP ``User-Agent`` stays ``aria2/1.37.0``, so downloads look
+like aria2's. This program comes with no warranty.
 
 Changes from aria2
 ------------------
@@ -144,10 +147,10 @@ bytes.
 Building
 --------
 
-From a git checkout you need autoconf, automake, autopoint, libtool,
-pkg-config and a C++11 compiler, plus development packages for GnuTLS
-and Nettle (or OpenSSL), c-ares, zlib and libpsl; CppUnit runs the
-tests. Then::
+ariam is released as source only. From a git checkout you need
+autoconf, automake, autopoint, libtool, pkg-config and a C++11
+compiler, plus development packages for GnuTLS and Nettle (or
+OpenSSL), c-ares, zlib and libpsl; CppUnit runs the tests. Then::
 
     $ autoreconf -i
     $ ./configure --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt
@@ -158,6 +161,36 @@ tests. Then::
 The CA bundle path varies by system; see aria2's `build notes
 <https://github.com/aria2/aria2#how-to-build>`_ for the details and
 other platforms.
+
+Running
+-------
+
+A configuration file for the setup ariam is built for, with ariam
+connect and the status page reaching it over the LAN (paths and values
+are placeholders)::
+
+    dir=/srv/downloads
+    enable-rpc=true
+    rpc-listen-all=true
+    rpc-secret=<long random secret>
+    rpc-secure=true
+    rpc-certificate=/etc/ariam/cert.pem
+    rpc-private-key=/etc/ariam/key.pem
+    status-page-passphrase=<passphrase>
+    max-concurrent-downloads=8
+    site-concurrent-default=2
+    site-concurrent-file=/var/lib/ariam/site-limits
+    input-file=/var/lib/ariam/session
+    save-session=/var/lib/ariam/session
+    save-session-interval=60
+
+Create the session file empty before the first start, since aria2
+refuses to start without its ``input-file``, then run ``aria2c
+--conf-path=<file>``. The certificate must be one the browser trusts
+for the host name it uses. The status page and ariam connect's
+instance URL are both ``https://<host>:6800`` (``rpc-listen-port``).
+The file holds the RPC secret and the passphrase, so keep it readable
+only by the user ariam runs as.
 
 Contributing and security
 -------------------------
