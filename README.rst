@@ -1,12 +1,13 @@
 ariam
 =====
 
-ariam is a personal fork of `aria2 <https://github.com/aria2/aria2>`_
+ariam is a fork of `aria2 <https://github.com/aria2/aria2>`_
 1.37.0, a modified version of aria2 built for one use: a headless
 download daemon on a home server that a browser hands downloads to,
 with per-site download limits and a passphrase-gated status page on
 the LAN. The browser side is the Firefox extension `ariam connect
-<https://github.com/ariam-dev/ariam-connect>`_.
+<https://github.com/ariam-dev/ariam-connect>`_, installed from `Firefox
+Add-ons <https://addons.mozilla.org/firefox/addon/ariam-connect/>`_.
 
 ariam downloads over HTTP(S) and FTP. BitTorrent, Metalink and
 WebSocket RPC are off by default; enabling them at build time is

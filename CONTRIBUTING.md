@@ -1,6 +1,6 @@
 # Contributing
 
-ariam is a personal fork of aria2, kept for one use (see the README).
+ariam is a fork of aria2, kept for one use (see the README).
 Bug reports and small fixes within that scope are welcome; features
 outside it, including BitTorrent, Metalink and WebSocket, belong in
 [aria2](https://github.com/aria2/aria2).
