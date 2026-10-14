@@ -184,8 +184,11 @@ are placeholders)::
     save-session=/var/lib/ariam/session
     save-session-interval=60
 
-Create the session file empty before the first start, since aria2
-refuses to start without its ``input-file``, then run ``aria2c
+Before the first start, create the state directory
+(``/var/lib/ariam`` here) writable by the user ariam runs as, since
+the session and the site limits are saved through a temporary file
+beside them, and the session file in it, empty, since aria2 refuses to
+start without its ``input-file``. Then run ``aria2c
 --conf-path=<file>``. The certificate must be one the browser trusts
 for the host name it uses. The status page and ariam connect's
 instance URL are both ``https://<host>:6800`` (``rpc-listen-port``).
